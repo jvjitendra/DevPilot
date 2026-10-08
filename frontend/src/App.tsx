@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, Bot, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Clock3,
   Code2, ExternalLink, FileCode2, GitBranch, GitCommitHorizontal, GitPullRequest,
-  LayoutDashboard, Link2, Loader2, LogOut, Play, Plus, RefreshCw, Search,
+  LayoutDashboard, Link2, Loader2, LogOut, PanelLeftClose, PanelLeftOpen, Play, Plus, RefreshCw, Search,
   Server, Settings, ShieldCheck, Sparkles, Square, Terminal, TestTube2, UserRound, X,
   Zap
 } from 'lucide-react'
@@ -35,6 +35,12 @@ const nav: NavItem[] = [
   { label: 'Pull Requests', icon: GitPullRequest },
   { label: 'Audit Logs', icon: Activity },
   { label: 'Settings', icon: Settings },
+]
+
+const quickSurfaces = [
+  { name: 'DevPilot', aliases: ['devpilot', 'devpilot-control-plane'], current: true },
+  { name: 'Vaani', aliases: ['vaani-ai-workspace', 'vaani'], current: false },
+  { name: 'TaskFlow', aliases: ['task-manager', 'taskflow'], current: false },
 ]
 
 const profile = {
@@ -126,6 +132,72 @@ function useLiveClock() {
   return tick
 }
 
+function highlightSource(source: string, path: string): ReactNode[] {
+  const extension = path.split('.').pop()?.toLowerCase() || ''
+  const language = ({ py: 'python', js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript', ts: 'typescript', tsx: 'typescript', html: 'html', htm: 'html', css: 'css', scss: 'css', less: 'css', json: 'json' } as Record<string, string>)[extension] || 'plain'
+  const keywords: Record<string, string> = {
+    python: 'and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield',
+    javascript: 'async await break case catch class const continue debugger default delete do else export extends finally for from function if import in instanceof let new of return set static super switch this throw try typeof var void while with yield',
+    typescript: 'abstract any as async await boolean break case catch class const constructor continue debugger declare default delete do else enum export extends finally for from function implements if import in instanceof interface let module namespace never new null number object of private protected public readonly return set static string super switch this throw try type typeof undefined var void while with yield',
+    html: 'doctype',
+  }
+  const commentPattern = language === 'python'
+    ? String.raw`#[^\r\n]*`
+    : language === 'javascript' || language === 'typescript'
+      ? String.raw`\/\/[^\r\n]*|\/\*[\s\S]*?\*\/`
+      : language === 'html'
+        ? String.raw`<!--[\s\S]*?-->`
+        : language === 'css'
+          ? String.raw`\/\*[\s\S]*?\*\/`
+          : ''
+  const patterns = [
+    commentPattern,
+    ['python', 'javascript', 'typescript'].includes(language) ? String.raw`@[A-Za-z_$][\w$]*` : '',
+    language === 'css' ? String.raw`#[0-9a-fA-F]{3,8}\b` : '',
+    language === 'html' ? String.raw`<\/?[A-Za-z][\w:-]*` : '',
+    String.raw`'''[\s\S]*?'''|"""[\s\S]*?"""|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\x60[^\x60]*\x60`,
+    String.raw`(?:0[xX][\da-fA-F]+|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)`,
+    String.raw`[A-Za-z_$][\w$]*`,
+    String.raw`===|!==|=>|==|!=|<=|>=|&&|\|\||\+\+|--|\+=|-=|\.\.\.|[+*\/%=<>!&|^~?:-]`,
+    String.raw`[{}()[\]]`,
+    String.raw`[^\s]`,
+  ].filter(Boolean)
+  const matcher = new RegExp(patterns.join('|'), 'g')
+  const keywordSet = new Set((keywords[language] || '').split(' '))
+  const output: ReactNode[] = []
+  let cursor = 0
+  let match: RegExpExecArray | null
+
+  while ((match = matcher.exec(source)) !== null) {
+    const value = match[0]
+    if (match.index > cursor) output.push(source.slice(cursor, match.index))
+    const after = source.slice(match.index + value.length)
+    let tokenClass = 'syntax-punctuation'
+
+    if ((language === 'python' && value.startsWith('#')) || ((language === 'javascript' || language === 'typescript') && /^\/\//.test(value)) || (language === 'html' && value.startsWith('<!--')) || (language === 'css' && value.startsWith('/*'))) tokenClass = 'syntax-comment'
+    else if (value.startsWith('@')) tokenClass = 'syntax-decorator'
+    else if (language === 'css' && /^#[0-9a-fA-F]{3,8}$/.test(value)) tokenClass = 'syntax-color'
+    else if (/^(?:'''|"""|'|"|\x60)/.test(value)) {
+      tokenClass = language === 'json' && /^\s*:/.test(after) ? 'syntax-property' : 'syntax-string'
+    } else if (/^(?:0[xX][\da-fA-F]+|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)/.test(value)) tokenClass = 'syntax-number'
+    else if (language === 'html' && /^<\/?[A-Za-z]/.test(value)) tokenClass = 'syntax-tag'
+    else if (/^[A-Za-z_$][\w$]*$/.test(value)) {
+      if (keywordSet.has(value)) tokenClass = 'syntax-keyword'
+      else if (/^(?:true|false|null|undefined|None|True|False)$/.test(value)) tokenClass = 'syntax-literal'
+      else if ((language === 'css' && /^\s*:/.test(after)) || (language === 'html' && /^\s*=/.test(after))) tokenClass = 'syntax-property'
+      else if (/^\s*\(/.test(after)) tokenClass = 'syntax-function'
+      else tokenClass = 'syntax-variable'
+    } else if ('()[]{}'.includes(value)) tokenClass = 'syntax-bracket'
+    else if (/^(?:===|!==|=>|==|!=|<=|>=|&&|\|\||\+\+|--|\+=|-=|\.\.\.|[+*\/%=<>!&|^~?:-])$/.test(value)) tokenClass = 'syntax-operator'
+
+    output.push(<span className={tokenClass} key={`token-${match.index}`}>{value}</span>)
+    cursor = matcher.lastIndex
+  }
+
+  if (cursor < source.length) output.push(source.slice(cursor))
+  return output
+}
+
 
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
   return <div className="login-screen">
@@ -142,6 +214,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
 function App() {
   useLiveClock()
   const [active, setActive] = useState('Dashboard')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth <= 900)
   const [profileOpen, setProfileOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [authUser, setAuthUser] = useState<AuthUser | null>(null)
@@ -227,12 +300,8 @@ function App() {
   const openQuickRepo = async (label: string) => {
     try {
       const data = await api<{ repositories: Repo[] }>('/repositories/session')
-      const aliases: Record<string, string[]> = {
-        DevPilot: ['devpilot', 'devpilot-control-plane'],
-        Vaani: ['vaani-ai-workspace', 'vaani'],
-        TaskFlow: ['task-manager', 'taskflow'],
-      }
-      const names = new Set((aliases[label] || [label]).map(x => x.toLowerCase()))
+      const surface = quickSurfaces.find(item => item.name === label)
+      const names = new Set((surface?.aliases || [label]).map(x => x.toLowerCase()))
       const match = (data.repositories || []).find(r => names.has(r.name.toLowerCase()))
       if (!match) {
         setNotice({ title: `${label} repository not found`, text: 'This shortcut only opens repositories available to the currently signed-in GitHub account.' })
@@ -265,24 +334,39 @@ function App() {
   if (!signedIn) return <LoginScreen onLogin={login} />
 
   return (
-    <div className="app">
+    <div className={`app ${sidebarCollapsed ? 'sidebar-collapsed' : 'sidebar-expanded'}`}>
       <aside className="sidebar">
-        <button className="brand" onClick={() => go('Dashboard')}>
-          <div className="brand-mark"><Code2 size={20} /></div>
-          <div><strong>DevPilot</strong><span>AI Software Engineer</span></div>
-        </button>
+        <div className="sidebar-head">
+          <button className="brand" onClick={() => go('Dashboard')} title="DevPilot home" aria-label="DevPilot home">
+            <div className="brand-mark"><Code2 size={20} /></div>
+            <div><strong>DevPilot</strong><span>AI Software Engineer</span></div>
+          </button>
+          <button className="sidebar-toggle" type="button" onClick={() => setSidebarCollapsed(value => !value)} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={!sidebarCollapsed} aria-controls="sidebar-navigation" title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+            {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          </button>
+        </div>
 
         <div className="side-context"><span className="signal" /><span>Agent core online</span><b>LIVE</b></div>
-        <div className="section-label">WORKSPACE</div>
-        {nav.slice(0, 3).map(item => <NavButton key={item.label} item={item} active={active} onClick={go} />)}
-        <div className="section-label">ENGINEERING</div>
-        {nav.slice(3, 7).map(item => <NavButton key={item.label} item={item} active={active} onClick={go} />)}
-        <div className="section-label">SYSTEM</div>
-        {nav.slice(7).map(item => <NavButton key={item.label} item={item} active={active} onClick={go} />)}
+        <div id="sidebar-navigation">
+          <div className="section-label">WORKSPACE</div>
+          {nav.slice(0, 3).map(item => <NavButton key={item.label} item={item} active={active} onClick={go} />)}
+          <div className="section-label">ENGINEERING</div>
+          {nav.slice(3, 7).map(item => <NavButton key={item.label} item={item} active={active} onClick={go} />)}
+          <div className="section-label">SYSTEM</div>
+          {nav.slice(7).map(item => <NavButton key={item.label} item={item} active={active} onClick={go} />)}
+          <div className="section-label">SURFACES</div>
+          <div className="sidebar-surfaces">
+            {quickSurfaces.map(surface => <button key={surface.name} className={`sidebar-surface ${surface.current ? 'current' : ''}`} type="button" onClick={() => openQuickRepo(surface.name)} title={surface.name} aria-label={`Open ${surface.name} surface`}>
+              <GitBranch size={20} />
+              <span>{surface.name}</span>
+              {surface.current && <em>ACTIVE</em>}
+            </button>)}
+          </div>
+        </div>
 
         <div className="sidebar-bottom">
           <div className="side-clock"><Clock3 size={14} /><div><b>{nowLabel()}</b><span>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())}</span></div></div>
-          <button className="profile-button" onClick={() => setAccountOpen(true)}>
+          <button className="profile-button" onClick={() => setAccountOpen(true)} aria-label={`Open account for ${authUser?.name || authUser?.login || 'GitHub User'}`} title={authUser?.name || authUser?.login || 'GitHub account'}>
             <span className="profile-account-icon">
               {authUser?.avatar_url
                 ? <img className="avatar-img" src={authUser.avatar_url} alt="" />
@@ -308,7 +392,7 @@ function App() {
         </header>
 
         <div className="content">
-          {active === 'Dashboard' && <Dashboard repo={repo} setRepo={setRepo} issue={issue} setIssue={setIssue} onNotice={setNotice} onGo={go} onQuickRepo={openQuickRepo} />}
+          {active === 'Dashboard' && <Dashboard repo={repo} setRepo={setRepo} issue={issue} setIssue={setIssue} onNotice={setNotice} onGo={go} />}
           {active === 'Repositories' && <Repositories onSelect={r => { setRepo({ owner: r.full_name.split('/')[0], repo: r.name }); go('Issues') }} />}
           {active === 'Issues' && <Issues repo={repo} selected={issue} onSelect={setIssue} onNotice={setNotice} onGo={go} />}
           {active === 'Agent Runs' && <AgentRuns />}
@@ -326,7 +410,7 @@ function App() {
           </div>
         </div>}
 
-        {profileOpen && <DeveloperProfile onClose={() => setProfileOpen(false)} onLogout={logout} />}
+        {profileOpen && <DeveloperProfile onClose={() => setProfileOpen(false)} />}
         {accountOpen && authUser && <AccountProfile user={authUser} onClose={() => setAccountOpen(false)} onLogout={logout} />}
         {quickRepo && <RepoQuickDrawer repo={quickRepo} onClose={() => setQuickRepo(null)} />}
         {notice && <Toast notice={notice} onClose={() => setNotice(null)} />}
@@ -337,7 +421,7 @@ function App() {
 
 function NavButton({ item, active, onClick }: { item: NavItem; active: string; onClick: (label: string) => void }) {
   const Icon = item.icon
-  return <button className={`nav ${active === item.label ? 'active' : ''}`} onClick={() => onClick(item.label)}><Icon size={17} /><span>{item.label}</span><ChevronRight className="nav-arrow" size={13} /></button>
+  return <button className={`nav ${active === item.label ? 'active' : ''}`} onClick={() => onClick(item.label)} title={item.label} aria-label={item.label}><Icon size={17} /><span>{item.label}</span><ChevronRight className="nav-arrow" size={13} /></button>
 }
 
 
@@ -368,18 +452,18 @@ function RepoPicker({ repos, repo, onChange }: { repos: Repo[]; repo: typeof DEF
 
 const stageIcons = [CheckCircle2, GitBranch, FileCode2, Bot, Sparkles, Code2, TestTube2, UserRound, GitPullRequest]
 
-function FlowStep({ s, i, last }: { s: string; i: number; last: boolean }) {
+function FlowStep({ s, i }: { s: string; i: number }) {
   const done = i < 3
   const active = i === 3
   const StageIcon = stageIcons[i] || CircleDot
   return <div className={`flow-step flow-step-${i + 1} ${done ? 'done' : active ? 'active' : ''}`}>
     <div className="flow-node"><StageIcon size={14} /></div>
     <b>{s}</b>
-    {!last && <i />}
+    {i < stages.length - 1 && <i className={`flow-edge flow-edge-${i + 1}`} aria-hidden="true" />}
   </div>
 }
 
-function Dashboard({ repo, setRepo, issue, setIssue, onNotice, onGo, onQuickRepo }: { repo: typeof DEFAULT_REPO; setRepo: (r: typeof DEFAULT_REPO) => void; issue: Issue | null; setIssue: (i: Issue | null) => void; onNotice: (n: { title: string; text: string; kind?: string }) => void; onGo: (s: string) => void; onQuickRepo: (label: string) => void }) {
+function Dashboard({ repo, setRepo, issue, setIssue, onNotice, onGo }: { repo: typeof DEFAULT_REPO; setRepo: (r: typeof DEFAULT_REPO) => void; issue: Issue | null; setIssue: (i: Issue | null) => void; onNotice: (n: { title: string; text: string; kind?: string }) => void; onGo: (s: string) => void }) {
   const [repos, setRepos] = useState<Repo[]>([])
   const [issues, setIssues] = useState<Issue[]>([])
   const [busy, setBusy] = useState(false)
@@ -449,18 +533,10 @@ function Dashboard({ repo, setRepo, issue, setIssue, onNotice, onGo, onQuickRepo
       <section className="surface active-run">
         <div className="surface-head"><div><span className="label">AGENT TELEMETRY</span><h3>How DevPilot works</h3></div><span className="status-pill"><span />Human approval gate</span></div>
         <div className="agent-flow">
-          <div className="flow-row">{stages.slice(0, 5).map((s, i) => <FlowStep key={s} s={s} i={i} last={i === 4} />)}</div>
-          <div className="flow-row flow-row-second">{stages.slice(5).map((s, n) => <FlowStep key={s} s={s} i={n + 5} last={n === 3} />)}</div>
+          <div className="flow-row">{stages.map((s, i) => <FlowStep key={s} s={s} i={i} />)}</div>
         </div>
       </section>
 
-      <section className="surface side-live">
-        <div className="surface-head"><div><span className="label">CONNECTED</span><h3>Engineering surface</h3></div><button className="icon-button" onClick={() => onGo('Repositories')}><Plus size={15} /></button></div>
-        <RepoMini name="DevPilot" meta="Current workspace" current onClick={() => onQuickRepo("DevPilot")} quickClass="quick-repo-devpilot" />
-        <RepoMini name="Vaani" meta="AI Workspace" onClick={() => onQuickRepo("Vaani")} quickClass="quick-repo-vaani" />
-        <RepoMini name="TaskFlow" meta="Productivity platform" onClick={() => onQuickRepo("TaskFlow")} quickClass="quick-repo-taskflow" />
-        <div className="guardrail-line"><ShieldCheck size={14} /><span>Safe by default · isolated changes · approval required</span></div>
-      </section>
     </div>
 
     <section className="surface activity-strip">
@@ -673,12 +749,6 @@ function PageShell({ eyebrow, title, desc, children }: { eyebrow: string; title:
   return <section className="page-shell"><div className="page-heading"><div><span className="eyebrow"><Sparkles size={13} /> {eyebrow}</span><h1>{title}</h1><p>{desc}</p></div><div className="heading-pulse"><span /><span /><span /></div></div>{children}</section>
 }
 
-function RepoMini({ name, meta, current, onClick, quickClass = '' }: { name: string; meta: string; current?: boolean; onClick?: () => void; quickClass?: string }) {
-  const content = <><div className="repo-symbol"><GitBranch size={15} /></div><div><b>{name}</b><span>{meta}</span></div><em className={current ? 'current' : ''}>{current ? 'ACTIVE' : 'READY'}</em></>
-  return onClick
-    ? <button type="button" className={`repo-mini repo-mini-button ${quickClass}`.trim()} onClick={onClick}>{content}</button>
-    : <div className="repo-mini">{content}</div>
-}
 function RepoQuickDrawer({ repo, onClose }: { repo: { name: string; owner: string; repo: string }; onClose: () => void }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -721,7 +791,7 @@ function RepoQuickDrawer({ repo, onClose }: { repo: { name: string; owner: strin
         </section>
         <section className="repo-quick-code">
           <div className="repo-quick-section-head"><b>{file?.path || 'FILE PREVIEW'}</b>{fileLoading && <Loader2 className="spin" size={14} />}</div>
-          {file ? <pre>{file.content}</pre> : <div className="quick-code-empty">Select a file to inspect its current GitHub contents.</div>}
+          {file ? <pre>{highlightSource(file.content, file.path)}</pre> : <div className="quick-code-empty">Select a file to inspect its current GitHub contents.</div>}
         </section>
       </div>
     </aside>
@@ -821,7 +891,7 @@ function AccountProfile({
   </div>
 }
 
-function DeveloperProfile({ onClose, onLogout }: { onClose: () => void; onLogout: () => void }) {
+function DeveloperProfile({ onClose }: { onClose: () => void }) {
   return <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
     <section className="developer-modal">
       <header className="developer-head"><div className="developer-identity"><div className="developer-avatar">JK<span /></div><div><h2>{profile.name}</h2><p>{profile.role}</p><small>{profile.location}</small></div></div><button className="close-btn" onClick={onClose}><X size={19} /></button></header>
@@ -840,7 +910,7 @@ function DeveloperProfile({ onClose, onLogout }: { onClose: () => void; onLogout
         <ProfileSection title="Certifications & Achievements" className="certifications-section profile-full"><div className="cert-list">{profile.certifications.map((c, i) => <article className="shine-card cert-card" key={c}><span className="cert-number">{String(i + 1).padStart(2, '0')}</span><div><b>{c.split(' — ')[0]}</b><span>{c.includes(' — ') ? c.slice(c.indexOf(' — ') + 3) : ''}</span></div></article>)}</div></ProfileSection>
         <div className="profile-columns profile-full"><ProfileSection title="Languages" className="languages-section"><div className="compact-list">{profile.languages.map(x => <span key={x}>{x}</span>)}</div></ProfileSection><ProfileSection title="Beyond Code" className="beyond-section"><div className="chip-row">{profile.beyond.map(x => <span key={x}>{x}</span>)}</div></ProfileSection><ProfileSection title="Currently Exploring" className="exploring-section"><div className="chip-row accent">{profile.exploring.map(x => <span key={x}>{x}</span>)}</div></ProfileSection></div>
         <div className="developer-links profile-full"><a href="https://github.com/jvjitendra" target="_blank" rel="noreferrer"><GitBranch size={14} /> GitHub <ExternalLink size={13} /></a><a href="https://www.linkedin.com/in/jvjitendra/" target="_blank" rel="noreferrer"><Link2 size={14} /> LinkedIn <ExternalLink size={13} /></a><a href="https://www.instagram.com/jv_jitendra/" target="_blank" rel="noreferrer"><Link2 size={14} /> Instagram <ExternalLink size={13} /></a></div>
-        <footer className="developer-footer profile-full"><span>JITENDRA VERMA · BUILDER & OPERATOR OF DEVPILOT</span><span>DevPilot · Vaani · TaskFlow · + many more</span><div className="session-actions"><button className="session-button danger" onClick={onLogout}><LogOut size={14} /> Sign out</button></div></footer>
+        <footer className="developer-footer profile-full"><span>JITENDRA VERMA · BUILDER & OPERATOR OF DEVPILOT</span><span>DevPilot · Vaani · TaskFlow · + many more</span></footer>
       </div>
     </section>
   </div>

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Cookie, HTTPException
 
 from app.ai.analyzer import analyze_issue
 from app.agents.patcher import generate_patch
@@ -17,11 +17,13 @@ def build_issue_pipeline(
     owner: str,
     repo: str,
     issue_number: int,
+    devpilot_session: str | None,
 ):
     context = get_issue_context_code(
         owner,
         repo,
         issue_number,
+        devpilot_session=devpilot_session,
     )
 
     if not context.get("ok"):
@@ -110,6 +112,7 @@ def analyze_repository_issue(
     owner: str,
     repo: str,
     issue_number: int,
+    devpilot_session: str | None = Cookie(default=None),
 ):
     try:
         (
@@ -122,6 +125,7 @@ def analyze_repository_issue(
             owner,
             repo,
             issue_number,
+            devpilot_session,
         )
 
         return {
@@ -174,6 +178,7 @@ def plan_repository_issue(
     owner: str,
     repo: str,
     issue_number: int,
+    devpilot_session: str | None = Cookie(default=None),
 ):
     try:
         (
@@ -186,6 +191,7 @@ def plan_repository_issue(
             owner,
             repo,
             issue_number,
+            devpilot_session,
         )
 
         planner_result, plan = build_plan(
@@ -253,6 +259,7 @@ def patch_repository_issue(
     owner: str,
     repo: str,
     issue_number: int,
+    devpilot_session: str | None = Cookie(default=None),
 ):
     try:
         (
@@ -265,6 +272,7 @@ def patch_repository_issue(
             owner,
             repo,
             issue_number,
+            devpilot_session,
         )
 
         planner_result, plan = build_plan(
@@ -463,6 +471,7 @@ def generate_repository_issue_tests(
     owner: str,
     repo: str,
     issue_number: int,
+    devpilot_session: str | None = Cookie(default=None),
 ):
     try:
         # ========================================================
@@ -479,6 +488,7 @@ def generate_repository_issue_tests(
             owner,
             repo,
             issue_number,
+            devpilot_session,
         )
 
         # ========================================================
