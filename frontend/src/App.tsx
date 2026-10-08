@@ -479,7 +479,7 @@ function Repositories({ onSelect }: { onSelect: (r: Repo) => void }) {
   const [error, setError] = useState('')
   const load = () => { setLoading(true); setError(''); api<{ repositories: Repo[] }>('/repositories/session').then(d => setRepos(d.repositories || [])).catch(e => { setRepos([]); setError(String(e).replace(/^Error:\s*/, '')) }).finally(() => setLoading(false)) }
   useEffect(load, [])
-  useEffect(() => { if (!selected) return; const [owner, name] = selected.full_name.split('/'); api<any>(`/repositories/session/${owner}/${name}/tree`).then(d => setTree(d.tree || d.items || d || [])).catch(() => setTree([])) }, [selected])
+  useEffect(() => { if (!selected) return; const [owner, name] = selected.full_name.split('/'); api<any>(`/repositories/${owner}/${name}/tree-session`).then(d => setTree(d.tree || d.items || d || [])).catch(() => setTree([])) }, [selected])
   const filtered = repos.filter(r => `${r.full_name} ${r.language || ''}`.toLowerCase().includes(query.toLowerCase()))
   return <PageShell eyebrow="REPOSITORY CONTROL" title="Your engineering surface" desc="GitHub repositories are live working surfaces for the agent. Inspect them before asking DevPilot to change anything.">
     <div className="toolbar"><div className="field-search"><Search size={15} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter repositories…" /></div><button className="secondary" onClick={load}><RefreshCw size={14} /> Refresh GitHub</button></div>
