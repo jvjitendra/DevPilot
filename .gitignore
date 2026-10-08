@@ -1,0 +1,23 @@
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+!.env.example
+.vscode/
+dist/
+coverage/
+.pytest_cache/
+.DS_Store
+
+# Local authentication/database state
+*.db
+*.sqlite
+*.sqlite3
+
+# Local backup/archive artifacts
+backend/.devpilot_auth_profile_backup_*/
+
+# Local/temporary client source artifact
+backend/client_current.txt

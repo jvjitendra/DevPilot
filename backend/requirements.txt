@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+pydantic-settings
+httpx
+SQLAlchemy
+psycopg[binary]
+PyGithub
+pytest
+
+itsdangerous
+
+itsdangerous
+cryptography
