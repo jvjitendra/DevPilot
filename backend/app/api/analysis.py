@@ -308,6 +308,7 @@ def patch_repository_issue(
                 owner=owner,
                 repo=repo,
                 path=path,
+                devpilot_session=devpilot_session,
             )
 
             if file_data.get("ok"):

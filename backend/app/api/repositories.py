@@ -1,6 +1,7 @@
 import base64
 import os
 import re
+from typing import Any
 
 import httpx
 from dotenv import load_dotenv
@@ -11,20 +12,48 @@ load_dotenv()
 
 router = APIRouter()
 
-def _session_or_env_token(devpilot_session: str | None) -> str:
-    if devpilot_session:
-        session = get_session(devpilot_session)
+def _resolve_token_and_source(devpilot_session: Any = None) -> tuple[str, str]:
+    raw_session = devpilot_session
+    if hasattr(devpilot_session, "default"):
+        raw_session = None
+
+    if isinstance(raw_session, str) and raw_session.strip():
+        session = get_session(raw_session)
         if session:
-            return access_token_for(session)
+            try:
+                token = access_token_for(session)
+                if token:
+                    return token, "session"
+            except HTTPException:
+                raise
+            except Exception:
+                pass
 
     token = os.getenv("GITHUB_TOKEN", "").strip()
     if token:
-        return token
+        return token, "server_env"
 
     raise HTTPException(
         status_code=401,
-        detail="GitHub session is not authenticated and GITHUB_TOKEN is not configured",
+        detail="GitHub session is not authenticated and GITHUB_TOKEN is not configured. Please sign in with GitHub.",
     )
+
+
+def _session_or_env_token(devpilot_session: Any = None) -> str:
+    token, _ = _resolve_token_and_source(devpilot_session)
+    return token
+
+
+def _auth_error_detail(status_code: int, source: str = "server_env", raw_message: str | None = None) -> str:
+    if status_code == 401:
+        if source == "session":
+            return "Your GitHub OAuth session has expired or was revoked. Please sign in again with GitHub."
+        return "Server fallback GitHub token is invalid or expired (Bad credentials). Please sign in with your GitHub account."
+    if status_code == 403:
+        if raw_message and "rate limit" in raw_message.lower():
+            return "GitHub API rate limit exceeded. Please sign in with GitHub or retry later."
+        return "Access to this GitHub repository is forbidden. Verify permissions or repository visibility."
+    return raw_message or "GitHub API request failed."
 
 
 
@@ -777,7 +806,12 @@ def build_targeted_excerpt(
 
 @router.get("/repositories")
 def get_repositories(devpilot_session: str | None = Cookie(default=None)):
-    headers = github_headers(devpilot_session)
+    token, source = _resolve_token_and_source(devpilot_session)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
 
     try:
         response = httpx.get(
@@ -791,9 +825,14 @@ def get_repositories(devpilot_session: str | None = Cookie(default=None)):
         )
 
         if response.status_code != 200:
+            raw_msg = None
+            try:
+                raw_msg = response.json().get("message")
+            except Exception:
+                pass
             raise HTTPException(
                 status_code=response.status_code,
-                detail="GitHub API request failed"
+                detail=_auth_error_detail(response.status_code, source, raw_msg)
             )
 
         repositories = response.json()
@@ -891,7 +930,12 @@ def get_repository_issues(
     repo: str,
     devpilot_session: str | None = Cookie(default=None),
 ):
-    headers = github_headers(devpilot_session)
+    token, source = _resolve_token_and_source(devpilot_session)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
 
     try:
         response = httpx.get(
@@ -905,9 +949,14 @@ def get_repository_issues(
         )
 
         if response.status_code != 200:
+            raw_msg = None
+            try:
+                raw_msg = response.json().get("message")
+            except Exception:
+                pass
             raise HTTPException(
                 status_code=response.status_code,
-                detail="GitHub issues request failed"
+                detail=_auth_error_detail(response.status_code, source, raw_msg)
             )
 
         issues = response.json()
@@ -1407,25 +1456,33 @@ def _session_github_token(request: Request) -> str:
     from app.auth.store import access_token_for, get_session
 
     session_id = request.cookies.get("devpilot_session")
-    if not session_id:
-        raise HTTPException(status_code=401, detail="GitHub session is not authenticated.")
+    if session_id:
+        session = get_session(session_id)
+        if session:
+            try:
+                token = access_token_for(session)
+                if token:
+                    return token
+            except HTTPException:
+                raise
+            except Exception:
+                pass
 
-    session = get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=401, detail="GitHub session expired or is invalid.")
+    env_token = os.getenv("GITHUB_TOKEN", "").strip()
+    if env_token:
+        return env_token
 
-    token = access_token_for(session)
-    if not token:
-        raise HTTPException(status_code=401, detail="GitHub access token is unavailable.")
-
-    return token
+    raise HTTPException(
+        status_code=401,
+        detail="GitHub session is not authenticated or has expired. Please sign in again.",
+    )
 
 
 def _session_github_headers(token: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2026-03-10",
+        "X-GitHub-Api-Version": "2022-11-28",
     }
 
 
@@ -1453,6 +1510,15 @@ def get_authenticated_repositories(request: Request):
             )
 
             if response.status_code != 200:
+                if response.status_code == 401:
+                    session_id = request.cookies.get("devpilot_session")
+                    if session_id:
+                        from app.auth.store import delete_session
+                        delete_session(session_id)
+                    raise HTTPException(
+                        status_code=401,
+                        detail="GitHub credentials are invalid or expired. Please sign in again.",
+                    )
                 detail = "GitHub repository request failed."
                 try:
                     detail = response.json().get("message") or detail
@@ -1530,6 +1596,15 @@ def get_authenticated_tree(
         )
 
         if response.status_code != 200:
+            if response.status_code == 401:
+                session_id = request.cookies.get("devpilot_session")
+                if session_id:
+                    from app.auth.store import delete_session
+                    delete_session(session_id)
+                raise HTTPException(
+                    status_code=401,
+                    detail="GitHub credentials are invalid or expired. Please sign in again.",
+                )
             detail = "GitHub repository tree request failed."
             try:
                 detail = response.json().get("message") or detail
@@ -1588,6 +1663,15 @@ def get_authenticated_file(
         )
 
         if response.status_code != 200:
+            if response.status_code == 401:
+                session_id = request.cookies.get("devpilot_session")
+                if session_id:
+                    from app.auth.store import delete_session
+                    delete_session(session_id)
+                raise HTTPException(
+                    status_code=401,
+                    detail="GitHub credentials are invalid or expired. Please sign in again.",
+                )
             detail = "GitHub file request failed."
             try:
                 detail = response.json().get("message") or detail

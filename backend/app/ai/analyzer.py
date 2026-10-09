@@ -20,13 +20,15 @@ except Exception:
     Groq = None
 
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+from app.core.config import settings
 
-GEMINI_PRIMARY = "gemini-3.8-flash"
-GEMINI_FALLBACK = "gemini-3.7-flash"
-GEMINI_SECONDARY_FALLBACK = "gemini-3.6-flash"
-GROQ_MODEL = "qwen/qwen3.8-27b"
+GEMINI_API_KEY = (settings.gemini_api_key or os.getenv("GEMINI_API_KEY", "")).strip()
+GROQ_API_KEY = (settings.groq_api_key or os.getenv("GROQ_API_KEY", "")).strip()
+
+GEMINI_PRIMARY = settings.gemini_model or "gemini-flash-latest"
+GEMINI_FALLBACK = settings.gemini_fallback_model or "gemini-flash-lite-latest"
+GEMINI_SECONDARY_FALLBACK = settings.gemini_secondary_fallback_model or "gemini-3.8-flash"
+GROQ_MODEL = settings.groq_model or "qwen/qwen3.8-27b"
 
 MAX_FILES = 3
 MAX_FILE_CHARS = 4200

@@ -237,9 +237,10 @@ async def github_callback(
 
 @router.get("/me")
 async def auth_me(
+    response: Response,
     devpilot_session: str | None = Cookie(default=None),
 ):
-    if not devpilot_session:
+    if not isinstance(devpilot_session, str) or not devpilot_session.strip():
         return {
             "authenticated": False,
             "user": None,
@@ -248,6 +249,29 @@ async def auth_me(
     session = get_session(devpilot_session)
 
     if not session:
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return {
+            "authenticated": False,
+            "user": None,
+        }
+
+    try:
+        token = access_token_for(session)
+    except HTTPException as e:
+        if e.status_code == 401:
+            delete_session(devpilot_session)
+            response.delete_cookie(SESSION_COOKIE, path="/")
+        return {
+            "authenticated": False,
+            "user": None,
+        }
+    except Exception:
+        return {
+            "authenticated": False,
+            "user": None,
+        }
+
+    if not token:
         return {
             "authenticated": False,
             "user": None,

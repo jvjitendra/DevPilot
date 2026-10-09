@@ -1,10 +1,10 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Activity, Bot, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Clock3,
-  Code2, ExternalLink, FileCode2, GitBranch, GitCommitHorizontal, GitPullRequest,
-  LayoutDashboard, Link2, Loader2, LogOut, PanelLeftClose, PanelLeftOpen, Play, Plus, RefreshCw, Search,
-  Server, Settings, ShieldCheck, Sparkles, Square, Terminal, TestTube2, UserRound, X,
-  Zap
+  Activity, AlertCircle, ArrowRight, BookOpen, Bot, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Clock3,
+  Code2, ExternalLink, FileCode2, GitBranch, GitCommitHorizontal, GitPullRequest, GraduationCap, HelpCircle,
+  LayoutDashboard, Link2, Loader2, Lock, LogOut, PanelLeftClose, PanelLeftOpen, Play, Plus, RefreshCw, Rocket, Search,
+  Layers, Server, Settings, ShieldCheck, Sparkles, Square, Terminal, TestTube2, UserRound, X,
+  Zap, Menu
 } from 'lucide-react'
 
 const API = 'http://127.0.0.1:8000/api'
@@ -123,6 +123,28 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
   return data as T
 }
 
+const OPERATION_TIMEOUT_MS = 180_000
+
+function createOperationController() {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(
+    () => controller.abort(new DOMException('Request timed out.', 'TimeoutError')),
+    OPERATION_TIMEOUT_MS,
+  )
+  return { controller, clearTimeout: () => window.clearTimeout(timeout) }
+}
+
+function formatOperationError(error: unknown, operation: string) {
+  if (error instanceof DOMException && error.name === 'AbortError') return `${operation} was cancelled.`
+  if (error instanceof DOMException && error.name === 'TimeoutError') return `${operation} timed out after three minutes. Please try again.`
+  const msg = String(error).replace(/^Error:\s*/, '')
+  const lower = msg.toLowerCase()
+  if (lower.includes('bad credentials') || lower.includes('401') || lower.includes('expired') || lower.includes('not authenticated') || lower.includes('sign in')) {
+    return 'Your GitHub connection has expired or credentials are invalid. Please sign in with GitHub to reconnect.'
+  }
+  return msg
+}
+
 function useLiveClock() {
   const [tick, setTick] = useState(Date.now())
   useEffect(() => {
@@ -134,14 +156,15 @@ function useLiveClock() {
 
 function highlightSource(source: string, path: string): ReactNode[] {
   const extension = path.split('.').pop()?.toLowerCase() || ''
-  const language = ({ py: 'python', js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript', ts: 'typescript', tsx: 'typescript', html: 'html', htm: 'html', css: 'css', scss: 'css', less: 'css', json: 'json' } as Record<string, string>)[extension] || 'plain'
+  const language = ({ py: 'python', js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript', ts: 'typescript', tsx: 'typescript', html: 'html', htm: 'html', css: 'css', scss: 'css', less: 'css', json: 'json', yml: 'yaml', yaml: 'yaml', md: 'markdown', markdown: 'markdown' } as Record<string, string>)[extension] || 'plain'
   const keywords: Record<string, string> = {
     python: 'and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield',
     javascript: 'async await break case catch class const continue debugger default delete do else export extends finally for from function if import in instanceof let new of return set static super switch this throw try typeof var void while with yield',
     typescript: 'abstract any as async await boolean break case catch class const constructor continue debugger declare default delete do else enum export extends finally for from function implements if import in instanceof interface let module namespace never new null number object of private protected public readonly return set static string super switch this throw try type typeof undefined var void while with yield',
+    yaml: 'true false null yes no on off',
     html: 'doctype',
   }
-  const commentPattern = language === 'python'
+  const commentPattern = language === 'python' || language === 'yaml'
     ? String.raw`#[^\r\n]*`
     : language === 'javascript' || language === 'typescript'
       ? String.raw`\/\/[^\r\n]*|\/\*[\s\S]*?\*\/`
@@ -185,6 +208,7 @@ function highlightSource(source: string, path: string): ReactNode[] {
       if (keywordSet.has(value)) tokenClass = 'syntax-keyword'
       else if (/^(?:true|false|null|undefined|None|True|False)$/.test(value)) tokenClass = 'syntax-literal'
       else if ((language === 'css' && /^\s*:/.test(after)) || (language === 'html' && /^\s*=/.test(after))) tokenClass = 'syntax-property'
+      else if (language !== 'html' && /^[A-Z][A-Za-z0-9_$]*$/.test(value)) tokenClass = 'syntax-type'
       else if (/^\s*\(/.test(after)) tokenClass = 'syntax-function'
       else tokenClass = 'syntax-variable'
     } else if ('()[]{}'.includes(value)) tokenClass = 'syntax-bracket'
@@ -199,28 +223,1354 @@ function highlightSource(source: string, path: string): ReactNode[] {
 }
 
 
-function LoginScreen({ onLogin }: { onLogin: () => void }) {
-  return <div className="login-screen">
-    <section className="login-card">
-      <div className="brand-mark" style={{ margin: '0 auto' }}><Code2 size={22} /></div>
-      <h1>DevPilot</h1>
-      <p>AI Software Engineer · Developer control plane for inspectable issue analysis, code changes, verification and human-approved delivery.</p>
-      <button className="primary big" onClick={onLogin}><UserRound size={16} /> Sign in to DevPilot</button>
-      <small style={{ display: 'block', marginTop: 10, color: '#678095', fontSize: 9 }}>Local session control · GitHub credentials are not handled by this screen.</small>
-    </section>
-  </div>
+function GithubMark({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+    </svg>
+  )
+}
+
+function DocsModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <section className="login-info-modal" role="dialog" aria-modal="true" aria-labelledby="docs-title">
+        <header className="info-modal-header">
+          <div className="info-modal-title">
+            <BookOpen size={18} className="text-cyan" />
+            <h3 id="docs-title">DevPilot Documentation</h3>
+          </div>
+          <button className="close-btn" onClick={onClose} aria-label="Close documentation"><X size={18} /></button>
+        </header>
+        <div className="info-modal-body">
+          <section className="info-block">
+            <h4>Autonomous Developer Control Plane</h4>
+            <p>DevPilot connects directly to your authorized GitHub repositories to analyze issues, understand codebase topology, generate surgical diff patches, and execute isolated test verification suites with human-in-the-loop approval.</p>
+          </section>
+          <section className="info-block">
+            <h4>Inspectable 9-Stage Pipeline</h4>
+            <ul>
+              <li><b>1. Issue Analyzed:</b> Extracts problem context, reproduction hints, and keyword signals.</li>
+              <li><b>2. Repository Scanned:</b> Reads git tree structure and identifies affected file boundaries.</li>
+              <li><b>3. Relevant Files Identified:</b> Selects minimal necessary files for targeted context.</li>
+              <li><b>4. Root Cause Found:</b> Traces errors back to the underlying logic or configuration defect.</li>
+              <li><b>5. Plan Generated:</b> Outlines step-by-step changes before code modifications begin.</li>
+              <li><b>6. Patch Generated:</b> Produces reviewable unified diffs bounded to the issue scope.</li>
+              <li><b>7. Tests Running:</b> Safely executes test suites in isolated sandboxes with auto-retry.</li>
+              <li><b>8. Human Review:</b> Developer verifies patch and test results before approval.</li>
+              <li><b>9. Pull Request:</b> Automates delivery only after all quality checks pass.</li>
+            </ul>
+          </section>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function HelpModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <section className="login-info-modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+        <header className="info-modal-header">
+          <div className="info-modal-title">
+            <HelpCircle size={18} className="text-amber" />
+            <h3 id="help-title">DevPilot Help & Troubleshooting</h3>
+          </div>
+          <button className="close-btn" onClick={onClose} aria-label="Close help"><X size={18} /></button>
+        </header>
+        <div className="info-modal-body">
+          <section className="info-block">
+            <h4>Local Environment Verification</h4>
+            <p>Ensure DevPilot backend service is running locally on <code>http://127.0.0.1:8000</code> and the frontend is served on <code>http://127.0.0.1:5173</code>.</p>
+          </section>
+          <section className="info-block">
+            <h4>GitHub OAuth Settings</h4>
+            <p>In your GitHub Developer Settings OAuth Application, ensure your Authorization callback URL matches:</p>
+            <code>http://127.0.0.1:8000/api/auth/github/callback</code>
+          </section>
+          <section className="info-block">
+            <h4>Session Reset</h4>
+            <p>If you encounter invalid browser session caches, clear stored tokens below:</p>
+            <button
+              type="button"
+              className="secondary"
+              style={{ marginTop: 8 }}
+              onClick={() => {
+                localStorage.clear()
+                window.location.href = window.location.origin
+              }}
+            >
+              <RefreshCw size={14} /> Clear Local Cache & Reload
+            </button>
+          </section>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function PermissionsModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <section className="login-info-modal" role="dialog" aria-modal="true" aria-labelledby="perm-title">
+        <header className="info-modal-header">
+          <div className="info-modal-title">
+            <ShieldCheck size={18} className="text-emerald" />
+            <h3 id="perm-title">GitHub Permissions & Data Protection</h3>
+          </div>
+          <button className="close-btn" onClick={onClose} aria-label="Close permissions dialog"><X size={18} /></button>
+        </header>
+        <div className="info-modal-body">
+          <section className="info-block">
+            <h4>Requested OAuth Scopes</h4>
+            <ul>
+              <li><code>repo</code> — Allows reading issue descriptions, exploring tree structure, and creating isolated branches for patches.</li>
+              <li><code>read:user</code> — Used to display your authenticated GitHub avatar, profile name, and account identifier.</li>
+              <li><code>user:email</code> — Used for commit attribution during pull request generation.</li>
+            </ul>
+          </section>
+          <section className="info-block">
+            <h4>Zero Exfiltration Architecture</h4>
+            <p>DevPilot encrypts OAuth tokens using symmetric Fernet encryption before storing them in local SQLite. All issue analysis, planning, and test runs are bounded locally. Your source code and tokens are never sold, collected, or transmitted to third-party ad networks.</p>
+          </section>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function GithubLoginModal({
+  isOpen,
+  onClose,
+  onLogin,
+  isVerifying = false,
+  authError = null,
+  onClearError,
+  onOpenPermissions,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onLogin: () => void
+  isVerifying?: boolean
+  authError?: string | null
+  onClearError?: () => void
+  onOpenPermissions: () => void
+}) {
+  const [isConnecting, setIsConnecting] = useState(false)
+  const previousActiveElement = useRef<HTMLElement | null>(null)
+  const closeBtnRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    if (isOpen) {
+      previousActiveElement.current = document.activeElement as HTMLElement | null
+      const timer = window.setTimeout(() => closeBtnRef.current?.focus(), 40)
+      return () => window.clearTimeout(timer)
+    } else if (previousActiveElement.current) {
+      previousActiveElement.current.focus()
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
+  if (!isOpen) return null
+
+  const handleLoginClick = () => {
+    if (isConnecting || isVerifying) return
+    setIsConnecting(true)
+    if (onClearError) onClearError()
+    onLogin()
+  }
+
+  return (
+    <div
+      className="modal-backdrop login-modal-backdrop"
+      onMouseDown={e => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <section
+        className="login-modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="login-modal-title"
+      >
+        <button
+          ref={closeBtnRef}
+          type="button"
+          className="login-modal-close"
+          onClick={onClose}
+          aria-label="Close sign in dialog"
+        >
+          <X size={18} />
+        </button>
+
+        <div className="login-modal-header">
+          <div className="login-modal-emblem" aria-hidden="true">
+            <Code2 size={24} />
+          </div>
+          <h2 id="login-modal-title" className="login-modal-title">Sign in to DevPilot</h2>
+          <p className="login-modal-subtitle">
+            Connect your GitHub account to inspect repositories, analyze issues, and review verified changes.
+          </p>
+        </div>
+
+        {authError && (
+          <div className="login-modal-error" role="alert">
+            <AlertCircle size={16} className="error-icon" />
+            <div className="error-message">
+              <strong>Authentication Notice</strong>
+              <span>{authError}</span>
+            </div>
+            {onClearError && (
+              <button
+                type="button"
+                onClick={onClearError}
+                className="error-dismiss-btn"
+                aria-label="Dismiss error"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        )}
+
+        {isVerifying ? (
+          <div className="login-modal-verifying">
+            <Loader2 className="spin text-cyan" size={24} />
+            <div>
+              <strong>Verifying GitHub Session…</strong>
+              <span>Validating session tokens with DevPilot backend</span>
+            </div>
+          </div>
+        ) : (
+          <div className="login-modal-action">
+            <button
+              type="button"
+              className={`github-cta-button ${isConnecting ? 'loading' : ''}`}
+              onClick={handleLoginClick}
+              disabled={isConnecting}
+              aria-label="Continue with GitHub"
+            >
+              <span className="cta-inner">
+                {isConnecting ? (
+                  <>
+                    <Loader2 className="spin" size={19} />
+                    <span>Connecting to GitHub…</span>
+                  </>
+                ) : (
+                  <>
+                    <GithubMark size={20} />
+                    <span>Continue with GitHub</span>
+                    <ArrowRight size={18} className="cta-arrow" />
+                  </>
+                )}
+              </span>
+            </button>
+          </div>
+        )}
+
+        <div className="login-modal-trust">
+          <div className="trust-item">
+            <ShieldCheck size={15} className="text-emerald" />
+            <span>Secure OAuth</span>
+          </div>
+          <span className="trust-bullet">•</span>
+          <div className="trust-item">
+            <Zap size={15} className="text-amber" />
+            <span>One-click Sign in</span>
+          </div>
+          <span className="trust-bullet">•</span>
+          <div className="trust-item">
+            <Lock size={15} className="text-cyan" />
+            <span>Private & Bounded</span>
+          </div>
+        </div>
+
+        <div className="login-modal-footer">
+          <p>
+            By continuing, you authenticate using GitHub. No passwords or tokens are stored without encryption.
+          </p>
+          <button
+            type="button"
+            onClick={onOpenPermissions}
+            className="login-permissions-trigger"
+          >
+            View requested permissions <ArrowRight size={12} />
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+type LandingView = 'overview' | 'features' | 'workflow' | 'architecture' | 'docs' | 'creator'
+
+
+
+const pipelineStages = [
+  { num: '01', name: 'Issue Analyzed', desc: 'Extracts problem context, reproduction hints, and keyword signals from GitHub issue.' },
+  { num: '02', name: 'Repository Scanned', desc: 'Reads git tree structure and maps symbol hierarchies across the repository.' },
+  { num: '03', name: 'Relevant Files Identified', desc: 'Selects minimal necessary files for targeted context to avoid code bloat.' },
+  { num: '04', name: 'Root Cause Found', desc: 'Traces errors back to the underlying logic or configuration defect.' },
+  { num: '05', name: 'Plan Generated', desc: 'Outlines step-by-step changes before any code modifications begin.' },
+  { num: '06', name: 'Patch Generated', desc: 'Produces surgical unified diffs strictly bounded to the issue scope.' },
+  { num: '07', name: 'Tests Running', desc: 'Safely executes test suites in isolated sandboxes with auto-retry telemetry.' },
+  { num: '08', name: 'Human Review', desc: 'Developer verifies patch diff and test execution before approval gate.' },
+  { num: '09', name: 'Pull Request', desc: 'Automates delivery to GitHub only after all quality checks pass.' },
+]
+
+function LandingPage({
+  onOpenLogin,
+  onOpenDocs,
+  onOpenHelp,
+  onOpenPermissions,
+}: {
+  onOpenLogin: () => void
+  onOpenDocs: () => void
+  onOpenHelp: () => void
+  onOpenPermissions: () => void
+}) {
+  const [activeView, setActiveView] = useState<LandingView>(() => {
+    const hash = window.location.hash.replace(/^#/, '').toLowerCase()
+    if (hash === 'features' || hash === 'workflow' || hash === 'architecture' || hash === 'docs' || hash === 'creator') {
+      return hash as LandingView
+    }
+    return 'overview'
+  })
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [isTransitioning, setIsTransitioning] = useState<boolean>(false)
+  const transitionTimerRef = useRef<number | null>(null)
+  const pendingViewRef = useRef<LandingView | null>(null)
+
+  const transitionToView = (view: LandingView) => {
+    if (view === activeView && !pendingViewRef.current) {
+      return
+    }
+    if (pendingViewRef.current === view) {
+      return
+    }
+
+    if (transitionTimerRef.current !== null) {
+      window.clearTimeout(transitionTimerRef.current)
+      transitionTimerRef.current = null
+    }
+
+    setMobileMenuOpen(false)
+
+    const prefersReduced =
+      typeof window !== 'undefined' &&
+      window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    if (prefersReduced) {
+      pendingViewRef.current = null
+      setIsTransitioning(false)
+      setActiveView(view)
+      window.scrollTo({ top: 0, behavior: 'auto' })
+      return
+    }
+
+    pendingViewRef.current = view
+    setIsTransitioning(true)
+
+    transitionTimerRef.current = window.setTimeout(() => {
+      setActiveView(view)
+      pendingViewRef.current = null
+      setIsTransitioning(false)
+      window.scrollTo({ top: 0, behavior: 'auto' })
+      transitionTimerRef.current = null
+    }, 90)
+  }
+
+  useEffect(() => {
+    const resolveHash = (): LandingView => {
+      const hash = window.location.hash.replace(/^#/, '').toLowerCase()
+      if (hash === 'features' || hash === 'workflow' || hash === 'architecture' || hash === 'docs' || hash === 'creator') {
+        return hash as LandingView
+      }
+      return 'overview'
+    }
+
+    const handleHistoryChange = () => {
+      transitionToView(resolveHash())
+    }
+
+    window.addEventListener('hashchange', handleHistoryChange)
+    window.addEventListener('popstate', handleHistoryChange)
+
+    return () => {
+      window.removeEventListener('hashchange', handleHistoryChange)
+      window.removeEventListener('popstate', handleHistoryChange)
+      if (transitionTimerRef.current !== null) {
+        window.clearTimeout(transitionTimerRef.current)
+      }
+    }
+  }, [activeView])
+
+  const switchView = (view: LandingView) => {
+    setMobileMenuOpen(false)
+
+    if (view === activeView && pendingViewRef.current === null) {
+      return
+    }
+
+    const targetHash = view === 'overview' ? '' : `#${view}`
+    const nextUrl = `${window.location.pathname}${window.location.search}${targetHash}`
+
+    if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) {
+      window.history.pushState(null, '', nextUrl)
+    }
+
+    transitionToView(view)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  return (
+    <div className="landing-page">
+      <div className="landing-bg-grid" aria-hidden="true" />
+      <div className="landing-bg-radial" aria-hidden="true" />
+
+      {/* Persistent App Header */}
+      <header className="landing-header">
+        <div
+          className="landing-brand"
+          onClick={() => switchView('overview')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') switchView('overview') }}
+          aria-label="DevPilot home"
+        >
+          <div className="brand-emblem-compact">
+            <Code2 size={20} />
+          </div>
+          <span className="brand-wordmark">DevPilot</span>
+          <span className="landing-version-badge">v0.1</span>
+        </div>
+
+        {/* Desktop Navigation */}
+        <nav className="landing-nav" aria-label="Main Navigation">
+          <button
+            type="button"
+            onClick={() => switchView('overview')}
+            className={`landing-nav-item ${activeView === 'overview' ? 'active' : ''}`}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            onClick={() => switchView('features')}
+            className={`landing-nav-item ${activeView === 'features' ? 'active' : ''}`}
+          >
+            Features
+          </button>
+          <button
+            type="button"
+            onClick={() => switchView('workflow')}
+            className={`landing-nav-item ${activeView === 'workflow' ? 'active' : ''}`}
+          >
+            Workflow
+          </button>
+          <button
+            type="button"
+            onClick={() => switchView('architecture')}
+            className={`landing-nav-item ${activeView === 'architecture' ? 'active' : ''}`}
+          >
+            Architecture
+          </button>
+          <button
+            type="button"
+            onClick={() => switchView('docs')}
+            className={`landing-nav-item ${activeView === 'docs' ? 'active' : ''}`}
+          >
+            Docs
+          </button>
+          <button
+            type="button"
+            onClick={() => switchView('creator')}
+            className={`landing-nav-item ${activeView === 'creator' ? 'active' : ''}`}
+          >
+            Creator
+          </button>
+          <a
+            href="https://github.com/jvjitendra/DevPilot"
+            target="_blank"
+            rel="noreferrer"
+            className="landing-nav-item nav-ext"
+            title="DevPilot GitHub Repository"
+          >
+            <GithubMark size={15} />
+            <span>GitHub</span>
+          </a>
+        </nav>
+
+        {/* Header Right Actions */}
+        <div className="landing-header-actions">
+          <button
+            type="button"
+            onClick={onOpenLogin}
+            className="landing-signin-btn"
+          >
+            Sign in
+          </button>
+          <button
+            type="button"
+            className="landing-mobile-toggle"
+            onClick={() => setMobileMenuOpen(prev => !prev)}
+            aria-expanded={mobileMenuOpen}
+            aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+          >
+            {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+        </div>
+      </header>
+
+      {/* Mobile Navigation Drawer */}
+      {mobileMenuOpen && (
+        <>
+          <div
+            className="landing-mobile-menu-backdrop"
+            onClick={() => setMobileMenuOpen(false)}
+            aria-hidden="true"
+          />
+          <nav className="landing-mobile-menu" aria-label="Mobile Navigation">
+            <button
+              type="button"
+              onClick={() => switchView('overview')}
+              className={`mobile-nav-btn ${activeView === 'overview' ? 'active' : ''}`}
+            >
+              Overview
+            </button>
+            <button
+              type="button"
+              onClick={() => switchView('features')}
+              className={`mobile-nav-btn ${activeView === 'features' ? 'active' : ''}`}
+            >
+              Features
+            </button>
+            <button
+              type="button"
+              onClick={() => switchView('workflow')}
+              className={`mobile-nav-btn ${activeView === 'workflow' ? 'active' : ''}`}
+            >
+              Workflow
+            </button>
+            <button
+              type="button"
+              onClick={() => switchView('architecture')}
+              className={`mobile-nav-btn ${activeView === 'architecture' ? 'active' : ''}`}
+            >
+              Architecture
+            </button>
+            <button
+              type="button"
+              onClick={() => switchView('docs')}
+              className={`mobile-nav-btn ${activeView === 'docs' ? 'active' : ''}`}
+            >
+              Docs
+            </button>
+            <button
+              type="button"
+              onClick={() => switchView('creator')}
+              className={`mobile-nav-btn ${activeView === 'creator' ? 'active' : ''}`}
+            >
+              About the Creator
+            </button>
+            <a
+              href="https://github.com/jvjitendra/DevPilot"
+              target="_blank"
+              rel="noreferrer"
+              className="mobile-nav-btn nav-ext"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <GithubMark size={16} />
+              <span>GitHub</span>
+            </a>
+            <div className="mobile-menu-divider" />
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false)
+                onOpenLogin()
+              }}
+              className="mobile-signin-btn"
+            >
+              Sign in with GitHub
+            </button>
+          </nav>
+        </>
+      )}
+
+      {/* Section View Container with fast, configurable fade transition */}
+      <main className={`landing-content ${isTransitioning ? 'landing-view-exit' : 'landing-view-enter'}`} key={activeView}>
+        {activeView === 'overview' && (
+          <>
+            {/* Hero Section */}
+            <section className="landing-hero">
+              <div className="landing-pill-badge">
+                <Sparkles size={13} className="sparkle-icon" />
+                <span>AI-Powered Developer Workspace</span>
+              </div>
+
+              <h1 className="landing-hero-headline">
+                Build Better <span className="landing-gradient-text">with AI</span>
+              </h1>
+
+              <p className="landing-hero-subhead">
+                DevPilot helps developers inspect repository context, analyze issues, plan changes, generate patches, and work with tests.
+              </p>
+
+              <div className="landing-hero-actions">
+                <button
+                  type="button"
+                  onClick={onOpenLogin}
+                  className="landing-btn-primary"
+                >
+                  <span>Get started</span>
+                  <ArrowRight size={17} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchView('features')}
+                  className="landing-btn-secondary"
+                >
+                  <span>Explore features</span>
+                  <ChevronRight size={17} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchView('workflow')}
+                  className="landing-btn-secondary"
+                >
+                  <span>Inspect 9-stage pipeline</span>
+                </button>
+              </div>
+            </section>
+
+            {/* Platform Assurances Strip */}
+            <div className="platform-assurances-strip">
+              <div className="assurance-badge">
+                <ShieldCheck size={14} className="text-emerald" />
+                <span>Zero Code Exfiltration</span>
+              </div>
+              <div className="assurance-badge">
+                <Server size={14} className="text-cyan" />
+                <span>100% Local FastAPI Backend</span>
+              </div>
+              <div className="assurance-badge">
+                <Lock size={14} className="text-amber" />
+                <span>AES/Fernet Token Encryption</span>
+              </div>
+              <div className="assurance-badge">
+                <CheckCircle2 size={14} className="text-purple" />
+                <span>Mandatory Human Review Gate</span>
+              </div>
+            </div>
+
+            {/* Overview Capability Cards Grid */}
+            <section className="landing-section">
+              <div className="section-header">
+                <span className="section-eyebrow">CAPABILITIES</span>
+                <h2 className="section-title">Engineered for deterministic developer workflows</h2>
+                <p className="section-subtitle">
+                  DevPilot replaces unguided code generation with bounded context, structured implementation planning, and isolated verification gates.
+                </p>
+              </div>
+
+              <div className="features-grid">
+                <article className="feature-card" onClick={() => switchView('features')}>
+                  <div className="feature-top">
+                    <div className="feature-icon-box theme-cyan">
+                      <Search size={20} />
+                    </div>
+                    <span className="feature-tag">Context Engine</span>
+                  </div>
+                  <h3>Understand your code</h3>
+                  <p>
+                    Inspect repository topology, symbol hierarchies, and AST relationships to trace issues directly to their root cause.
+                  </p>
+                </article>
+
+                <article className="feature-card" onClick={() => switchView('features')}>
+                  <div className="feature-top">
+                    <div className="feature-icon-box theme-purple">
+                      <GitBranch size={20} />
+                    </div>
+                    <span className="feature-tag">Deterministic Logic</span>
+                  </div>
+                  <h3>Plan changes</h3>
+                  <p>
+                    Reason through root causes and break solutions into discrete, verifiable steps before touching a single line of application code.
+                  </p>
+                </article>
+
+                <article className="feature-card" onClick={() => switchView('features')}>
+                  <div className="feature-top">
+                    <div className="feature-icon-box theme-emerald">
+                      <FileCode2 size={20} />
+                    </div>
+                    <span className="feature-tag">Minimal Blast Radius</span>
+                  </div>
+                  <h3>Generate patches</h3>
+                  <p>
+                    Produce minimal, reviewable unified diffs strictly bounded to the issue scope, eliminating accidental regressions and file churn.
+                  </p>
+                </article>
+
+                <article className="feature-card" onClick={() => switchView('features')}>
+                  <div className="feature-top">
+                    <div className="feature-icon-box theme-amber">
+                      <TestTube2 size={20} />
+                    </div>
+                    <span className="feature-tag">Quality Gates</span>
+                  </div>
+                  <h3>Verify with tests</h3>
+                  <p>
+                    Run targeted test suites against generated patches with automatic retry mechanisms and mandatory human-in-the-loop approval before merge.
+                  </p>
+                </article>
+              </div>
+            </section>
+
+            {/* Bottom CTA Banner */}
+            <section className="landing-cta-banner">
+              <div className="cta-banner-card">
+                <h2>Ready to build better software with AI?</h2>
+                <p>Connect your GitHub account and experience transparent, inspectable AI software engineering.</p>
+                <button
+                  type="button"
+                  onClick={onOpenLogin}
+                  className="landing-btn-primary"
+                >
+                  <span>Get started with GitHub</span>
+                  <ArrowRight size={17} />
+                </button>
+              </div>
+            </section>
+          </>
+        )}
+
+        {activeView === 'features' && (
+          <section className="landing-section">
+            <div className="section-header">
+              <span className="section-eyebrow">CORE CAPABILITIES</span>
+              <h1 className="section-title">Engineered for deterministic developer workflows</h1>
+              <p className="section-subtitle">
+                DevPilot replaces unguided code generation with bounded context, structured implementation planning, and isolated verification gates.
+              </p>
+            </div>
+
+            <div className="features-grid">
+              <article className="feature-card">
+                <div className="feature-top">
+                  <div className="feature-icon-box theme-cyan">
+                    <Search size={20} />
+                  </div>
+                  <span className="feature-tag">Context Engine</span>
+                </div>
+                <h3>Deep Repository Topology</h3>
+                <p>
+                  Indexes file trees, AST symbol relationships, and import chains locally. Scans function hierarchies to isolate the exact defect boundary without exfiltrating application code.
+                </p>
+              </article>
+
+              <article className="feature-card">
+                <div className="feature-top">
+                  <div className="feature-icon-box theme-purple">
+                    <GitBranch size={20} />
+                  </div>
+                  <span className="feature-tag">Deterministic Logic</span>
+                </div>
+                <h3>Structured Implementation Planning</h3>
+                <p>
+                  Breaks issues into discrete, verifiable phases before generating diffs. Every step identifies affected files, anticipated side-effects, and verification criteria.
+                </p>
+              </article>
+
+              <article className="feature-card">
+                <div className="feature-top">
+                  <div className="feature-icon-box theme-emerald">
+                    <FileCode2 size={20} />
+                  </div>
+                  <span className="feature-tag">Minimal Blast Radius</span>
+                </div>
+                <h3>Surgical Patch Synthesis</h3>
+                <p>
+                  Generates minimal, reviewable unified diffs strictly bounded to the issue scope. Avoids unnecessary file modifications, cosmetic rewrites, and noisy Git churn.
+                </p>
+              </article>
+
+              <article className="feature-card">
+                <div className="feature-top">
+                  <div className="feature-icon-box theme-amber">
+                    <TestTube2 size={20} />
+                  </div>
+                  <span className="feature-tag">Quality Gates</span>
+                </div>
+                <h3>Sandboxed Test Verification</h3>
+                <p>
+                  Executes test suites in isolated sandboxes with automatic retry mechanisms, failure diagnosis, and mandatory developer sign-off before changes touch any Git branch.
+                </p>
+              </article>
+            </div>
+
+            {/* Architecture Comparison Pillars */}
+            <div className="comparison-section">
+              <h2 className="comparison-heading">Why DevPilot is Different</h2>
+              <div className="security-grid">
+                <div className="security-card">
+                  <div className="security-icon-box">
+                    <Zap size={22} className="text-amber" />
+                  </div>
+                  <h4>Bounded vs Unbounded</h4>
+                  <p>
+                    Generic chatbots generate unverified code snippets that hallucinate dependencies. DevPilot operates strictly within your repository’s existing AST structure and tested conventions.
+                  </p>
+                </div>
+
+                <div className="security-card">
+                  <div className="security-icon-box">
+                    <ShieldCheck size={22} className="text-emerald" />
+                  </div>
+                  <h4>Human-in-the-Loop Sign-off</h4>
+                  <p>
+                    Autonomous tools should never push directly to production branches. DevPilot halts at Stage 8 for developer inspection and approval before initiating any pull request.
+                  </p>
+                </div>
+
+                <div className="security-card">
+                  <div className="security-icon-box">
+                    <Server size={22} className="text-cyan" />
+                  </div>
+                  <h4>Zero External Code Uploads</h4>
+                  <p>
+                    All analysis, planning, and test runs execute against your local FastAPI backend. Your proprietary source code is never indexed into public LLM training sets.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="view-cta-actions">
+              <button type="button" onClick={() => switchView('workflow')} className="landing-btn-secondary">
+                <span>View 9-stage workflow pipeline</span>
+                <ChevronRight size={16} />
+              </button>
+              <button type="button" onClick={onOpenLogin} className="landing-btn-primary">
+                <span>Sign in with GitHub</span>
+                <ArrowRight size={16} />
+              </button>
+            </div>
+          </section>
+        )}
+
+        {activeView === 'workflow' && (
+          <section className="landing-section">
+            <div className="section-header">
+              <span className="section-eyebrow">INSPECTABLE 9-STAGE PIPELINE</span>
+              <h1 className="section-title">From GitHub Issue to Verified Pull Request</h1>
+              <p className="section-subtitle">
+                Every operation passes through a transparent, 9-stage engineering pipeline with full audit logging and developer checkpoints.
+              </p>
+            </div>
+
+            <div className="pipeline-cards-grid">
+              {pipelineStages.map(stage => (
+                <div key={stage.num} className="pipeline-stage-card">
+                  <div className="stage-card-header">
+                    <span className="stage-num">{stage.num}</span>
+                    <span className="stage-badge">Stage {stage.num}</span>
+                  </div>
+                  <h3 className="stage-title">{stage.name}</h3>
+                  <p className="stage-desc">{stage.desc}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Workflow Approval Gate Banner */}
+            <div className="pipeline-gate-banner">
+              <div className="gate-icon-box">
+                <ShieldCheck size={24} className="text-emerald" />
+              </div>
+              <div className="gate-text">
+                <h3>Mandatory Human Review Gate (Stage 08)</h3>
+                <p>
+                  DevPilot never autonomously commits, pushes to origin, or opens pull requests without explicit developer authorization. Every unified diff patch and test run is presented for human sign-off before Stage 09.
+                </p>
+              </div>
+            </div>
+
+            <div className="view-cta-actions">
+              <button type="button" onClick={() => switchView('architecture')} className="landing-btn-secondary">
+                <span>Explore security architecture</span>
+                <ChevronRight size={16} />
+              </button>
+              <button type="button" onClick={onOpenLogin} className="landing-btn-primary">
+                <span>Start with GitHub</span>
+                <ArrowRight size={16} />
+              </button>
+            </div>
+          </section>
+        )}
+
+        {activeView === 'architecture' && (
+          <section className="landing-section">
+            <div className="section-header">
+              <span className="section-eyebrow">SECURITY & CONTROL</span>
+              <h1 className="section-title">Zero Code Exfiltration, Total Developer Control</h1>
+              <p className="section-subtitle">
+                Built for security-conscious developers who demand transparency and complete control over codebase modifications.
+              </p>
+            </div>
+
+            <div className="security-grid">
+              <div className="security-card">
+                <div className="security-icon-box">
+                  <Server size={22} className="text-cyan" />
+                </div>
+                <h4>Local & Isolated Execution</h4>
+                <p>
+                  All analysis, planning, and test runs execute against your local FastAPI backend at <code>127.0.0.1:8000</code>. Your codebase never leaves your local workstation.
+                </p>
+              </div>
+
+              <div className="security-card">
+                <div className="security-icon-box">
+                  <ShieldCheck size={22} className="text-emerald" />
+                </div>
+                <h4>Human Approval Gates</h4>
+                <p>
+                  Autonomous agents cannot commit, push, or merge without explicit human sign-off. Every patch is inspected and verified by the developer before Git actions.
+                </p>
+              </div>
+
+              <div className="security-card">
+                <div className="security-icon-box">
+                  <Lock size={22} className="text-amber" />
+                </div>
+                <h4>Encrypted Session Management</h4>
+                <p>
+                  Session credentials and OAuth tokens are protected via symmetric AES/Fernet encryption in local SQLite database storage. Cookies are scoped to HttpOnly and SameSite=Lax.
+                </p>
+              </div>
+            </div>
+
+            {/* Architecture Specifications */}
+            <div className="specs-table-card">
+              <h3>Security & Runtime Specifications</h3>
+              <div className="specs-list">
+                <div className="spec-item">
+                  <span className="spec-label">Backend Host</span>
+                  <span className="spec-value"><code>127.0.0.1:8000</code> (Localhost HTTP)</span>
+                </div>
+                <div className="spec-item">
+                  <span className="spec-label">Cookie Configuration</span>
+                  <span className="spec-value"><code>HttpOnly, SameSite=Lax, Path=/</code></span>
+                </div>
+                <div className="spec-item">
+                  <span className="spec-label">Token Encryption</span>
+                  <span className="spec-value">AES-128 CBC / HMAC (Fernet Specification)</span>
+                </div>
+                <div className="spec-item">
+                  <span className="spec-label">Code Privacy</span>
+                  <span className="spec-value">Zero external telemetry, no remote model fine-tuning</span>
+                </div>
+                <div className="spec-item">
+                  <span className="spec-label">Test Runner</span>
+                  <span className="spec-value">Bounded subprocess execution with strict timeouts</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="view-cta-actions">
+              <button type="button" onClick={() => switchView('docs')} className="landing-btn-secondary">
+                <span>View documentation</span>
+                <ChevronRight size={16} />
+              </button>
+              <button type="button" onClick={onOpenLogin} className="landing-btn-primary">
+                <span>Sign in with GitHub</span>
+                <ArrowRight size={16} />
+              </button>
+            </div>
+          </section>
+        )}
+
+        {activeView === 'docs' && (
+          <section className="landing-section">
+            <div className="section-header">
+              <span className="section-eyebrow">DOCUMENTATION & GUIDES</span>
+              <h1 className="section-title">Developer Quickstart & Technical Reference</h1>
+              <p className="section-subtitle">
+                Everything you need to configure, run, and operate the DevPilot autonomous developer workspace.
+              </p>
+            </div>
+
+            <div className="docs-cards-grid">
+              <div className="doc-card">
+                <div className="doc-icon-box">
+                  <BookOpen size={20} className="text-cyan" />
+                </div>
+                <h3>Quickstart Guide</h3>
+                <p>
+                  Clone DevPilot, launch FastAPI on <code>127.0.0.1:8000</code>, launch Vite on <code>127.0.0.1:5173</code>, and configure your GitHub OAuth App credentials.
+                </p>
+                <button type="button" onClick={onOpenDocs} className="doc-action-btn">
+                  <span>Open Full Documentation</span>
+                  <ArrowRight size={14} />
+                </button>
+              </div>
+
+              <div className="doc-card">
+                <div className="doc-icon-box">
+                  <ShieldCheck size={20} className="text-emerald" />
+                </div>
+                <h3>GitHub Permissions & Scopes</h3>
+                <p>
+                  DevPilot requests only <code>repo</code>, <code>read:user</code>, and <code>user:email</code> scopes. Tokens are encrypted locally with Fernet and never shared.
+                </p>
+                <button type="button" onClick={onOpenPermissions} className="doc-action-btn">
+                  <span>View Permissions Guide</span>
+                  <ArrowRight size={14} />
+                </button>
+              </div>
+
+              <div className="doc-card">
+                <div className="doc-icon-box">
+                  <HelpCircle size={20} className="text-amber" />
+                </div>
+                <h3>Troubleshooting & Sessions</h3>
+                <p>
+                  Encountering OAuth redirect mismatches or expired sessions? Use the troubleshooting guide to test endpoints and clear local storage caches.
+                </p>
+                <button type="button" onClick={onOpenHelp} className="doc-action-btn">
+                  <span>Open Troubleshooting</span>
+                  <ArrowRight size={14} />
+                </button>
+              </div>
+            </div>
+
+            <div className="view-cta-actions">
+              <button type="button" onClick={() => switchView('overview')} className="landing-btn-secondary">
+                <span>Back to overview</span>
+                <ChevronRight size={16} />
+              </button>
+              <button type="button" onClick={onOpenLogin} className="landing-btn-primary">
+                <span>Sign in with GitHub</span>
+                <ArrowRight size={16} />
+              </button>
+            </div>
+          </section>
+        )}
+
+        {activeView === 'creator' && (
+          <section className="landing-section creator-section">
+            <div className="section-header">
+              <span className="section-eyebrow">ENGINEERING LEADERSHIP & VISION</span>
+              <h1 className="section-title">About the Creator</h1>
+              <p className="section-subtitle">
+                The engineering philosophy, technical background, and vision behind DevPilot.
+              </p>
+            </div>
+
+            <div className="creator-profile-grid">
+              {/* Primary Card: Jitendra Kumar Verma Profile & Story */}
+              <article className="creator-card creator-card-featured">
+                <div className="creator-header">
+                  <div className="creator-avatar-container">
+                    <div className="creator-avatar-emblem">
+                      <span className="creator-initials">JV</span>
+                    </div>
+                    <div className="creator-verified-badge" title="Verified Creator">
+                      <CheckCircle2 size={13} />
+                    </div>
+                  </div>
+                  <div className="creator-headline">
+                    <h2 className="creator-name">Jitendra Kumar Verma</h2>
+                    <p className="creator-role">Backend & Full-Stack Developer</p>
+                    <div className="creator-meta-tags">
+                      <span className="creator-meta-tag">
+                        <GraduationCap size={13} />
+                        <span>Chandigarh University</span>
+                      </span>
+                      <span className="creator-meta-tag">
+                        <Code2 size={13} />
+                        <span>B.E. Computer Science & Engineering</span>
+                      </span>
+                      <span className="creator-meta-tag">
+                        <CheckCircle2 size={13} />
+                        <span>Graduated</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="creator-bio-block">
+                  <h3 className="creator-subhead">About Me</h3>
+                  <p className="creator-bio-text">
+                    I am a passionate Backend &amp; Full-Stack Developer dedicated to building robust, high-performance web applications and intelligent developer tooling. With deep expertise across Python, FastAPI, relational databases, and modern frontend technologies, I focus on creating systems that are reliable, maintainable, and deterministic.
+                  </p>
+                  <h3 className="creator-subhead" style={{ marginTop: '1.25rem' }}>Why I Built DevPilot</h3>
+                  <p className="creator-bio-text">
+                    Modern software engineering frequently suffers from fragmented issue triaging, painful context-switching between issue trackers and complex codebases, and error-prone manual patch testing. I built <strong>DevPilot</strong> to pioneer a deterministic AI-assisted control plane: one that transparently extracts repository context, diagnoses root causes with cited AST evidence, generates surgical unified diffs, and verifies them inside isolated test sandboxes—keeping human developers firmly in the driver’s seat.
+                  </p>
+                </div>
+
+                <blockquote className="creator-vision-quote">
+                  <Sparkles size={16} className="quote-icon" />
+                  <p>
+                    "Autonomous developer tooling should never be a probabilistic black box. Every diagnostic insight must cite reproducible code evidence, every patch must be an exact diff, and no change reaches production without passing test verification and human review."
+                  </p>
+                </blockquote>
+
+                <div className="creator-skills-groups">
+                  <div className="skills-group">
+                    <span className="skills-group-title">PROGRAMMING</span>
+                    <div className="skills-pills">
+                      <span>Python</span>
+                      <span>Java</span>
+                      <span>C++</span>
+                      <span>JavaScript</span>
+                    </div>
+                  </div>
+                  <div className="skills-group">
+                    <span className="skills-group-title">BACKEND</span>
+                    <div className="skills-pills">
+                      <span>FastAPI</span>
+                      <span>Flask</span>
+                      <span>REST APIs</span>
+                      <span>API Integration</span>
+                    </div>
+                  </div>
+                  <div className="skills-group">
+                    <span className="skills-group-title">DATABASES</span>
+                    <div className="skills-pills">
+                      <span>SQL</span>
+                      <span>MySQL</span>
+                      <span>PostgreSQL</span>
+                      <span>SQLite</span>
+                    </div>
+                  </div>
+                  <div className="skills-group">
+                    <span className="skills-group-title">FRONTEND</span>
+                    <div className="skills-pills">
+                      <span>React</span>
+                      <span>TypeScript</span>
+                      <span>HTML</span>
+                      <span>CSS</span>
+                    </div>
+                  </div>
+                  <div className="skills-group">
+                    <span className="skills-group-title">TOOLS</span>
+                    <div className="skills-pills">
+                      <span>Git</span>
+                      <span>GitHub</span>
+                      <span>VS Code</span>
+                      <span>Postman</span>
+                    </div>
+                  </div>
+                  <div className="skills-group">
+                    <span className="skills-group-title">AI &amp; DATA</span>
+                    <div className="skills-pills">
+                      <span>AI/ML Fundamentals</span>
+                      <span>Pandas</span>
+                      <span>Power BI</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="creator-actions-row">
+                  <a
+                    href="https://github.com/jvjitendra"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="landing-btn-primary"
+                  >
+                    <GithubMark size={16} />
+                    <span>GitHub Profile</span>
+                    <ExternalLink size={14} />
+                  </a>
+                  <a
+                    href="https://github.com/jvjitendra/DevPilot"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="landing-btn-secondary"
+                  >
+                    <GitPullRequest size={16} />
+                    <span>DevPilot Repository</span>
+                    <ExternalLink size={14} />
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => switchView('architecture')}
+                    className="landing-btn-secondary"
+                  >
+                    <Server size={16} />
+                    <span>Explore Architecture</span>
+                    <ArrowRight size={14} />
+                  </button>
+                </div>
+              </article>
+
+              {/* Secondary Cards: Highlights, Philosophy & Background */}
+              <div className="creator-side-cards">
+                <article className="creator-card">
+                  <div className="side-card-icon theme-cyan">
+                    <ShieldCheck size={20} />
+                  </div>
+                  <h3 className="side-card-title">Verifiable Engineering Philosophy</h3>
+                  <p className="side-card-desc">
+                    DevPilot replaces probabilistic code guesswork with strict multi-stage verification. Every action is audited in real time, diffs are bounded to minimal relevant scopes, and patches undergo regression testing before delivery.
+                  </p>
+                  <ul className="side-card-bullets">
+                    <li>Zero blind code exfiltration: 100% local FastAPI processing.</li>
+                    <li>Mandatory human approval gate before branch pushes or PR creation.</li>
+                    <li>Cryptographic token protection and secure local-only session persistence.</li>
+                  </ul>
+                </article>
+
+                <article className="creator-card">
+                  <div className="side-card-icon theme-purple">
+                    <GraduationCap size={20} />
+                  </div>
+                  <h3 className="side-card-title">Education</h3>
+                  <p className="side-card-desc">
+                    Completed Bachelor of Engineering in Computer Science &amp; Engineering at Chandigarh University. Focused on high-performance backend architecture, systems programming, and deterministic AI developer workflows.
+                  </p>
+                  <div className="side-card-stats">
+                    <div className="side-stat">
+                      <span className="stat-label">Institution</span>
+                      <strong className="stat-value">Chandigarh University</strong>
+                    </div>
+                    <div className="side-stat">
+                      <span className="stat-label">Degree</span>
+                      <strong className="stat-value">B.E. Computer Science &amp; Engineering</strong>
+                    </div>
+                    <div className="side-stat">
+                      <span className="stat-label">Status</span>
+                      <strong className="stat-value">Graduated</strong>
+                    </div>
+                  </div>
+                </article>
+
+                <article className="creator-card">
+                  <div className="side-card-icon theme-emerald">
+                    <Bot size={20} />
+                  </div>
+                  <h3 className="side-card-title">Control-Plane Architecture</h3>
+                  <p className="side-card-desc">
+                    DevPilot was architected from the ground up as a production control plane: combining asynchronous FastAPI services, real GitHub REST endpoints, AST-based symbol indexers, and an ergonomic React interface.
+                  </p>
+                  <div className="side-card-footer">
+                    <button
+                      type="button"
+                      onClick={() => switchView('workflow')}
+                      className="doc-action-btn"
+                    >
+                      <span>Inspect the 9-stage pipeline</span>
+                      <ArrowRight size={14} />
+                    </button>
+                  </div>
+                </article>
+              </div>
+            </div>
+
+            <div className="view-cta-actions">
+              <button type="button" onClick={() => switchView('overview')} className="landing-btn-secondary">
+                <span>Back to overview</span>
+                <ChevronRight size={16} />
+              </button>
+              <button type="button" onClick={onOpenLogin} className="landing-btn-primary">
+                <span>Sign in with GitHub</span>
+                <ArrowRight size={16} />
+              </button>
+            </div>
+          </section>
+        )}
+      </main>
+
+      {/* Persistent Footer */}
+      <footer className="landing-footer">
+        <div className="footer-top">
+          <div className="footer-brand">
+            <div className="brand-emblem-compact">
+              <Code2 size={18} />
+            </div>
+            <div>
+              <strong>DevPilot</strong>
+              <p>AI-Assisted Software Engineering Control Plane</p>
+            </div>
+          </div>
+
+          <div className="footer-links">
+            <button type="button" onClick={() => switchView('overview')} className="footer-link">Overview</button>
+            <button type="button" onClick={() => switchView('features')} className="footer-link">Features</button>
+            <button type="button" onClick={() => switchView('workflow')} className="footer-link">Workflow</button>
+            <button type="button" onClick={() => switchView('architecture')} className="footer-link">Architecture</button>
+            <button type="button" onClick={() => switchView('docs')} className="footer-link">Docs</button>
+            <button type="button" onClick={() => switchView('creator')} className="footer-link">About the Creator</button>
+            <button type="button" onClick={onOpenHelp} className="footer-link">Troubleshooting</button>
+            <button type="button" onClick={onOpenPermissions} className="footer-link">Permissions</button>
+            <a
+              href="https://github.com/jvjitendra/DevPilot"
+              target="_blank"
+              rel="noreferrer"
+              className="footer-link nav-ext"
+            >
+              GitHub
+            </a>
+          </div>
+        </div>
+
+        <div className="footer-bottom">
+          <span className="copyright">© {new Date().getFullYear()} DevPilot. All rights reserved.</span>
+          <span
+            className="creator-credit"
+            role="button"
+            tabIndex={0}
+            onClick={() => switchView('creator')}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') switchView('creator') }}
+            style={{ cursor: 'pointer' }}
+            title="Learn more about creator Jitendra Kumar Verma"
+          >
+            Crafted by Jitendra Verma
+          </span>
+        </div>
+      </footer>
+    </div>
+  )
 }
 
 function App() {
   useLiveClock()
   const [active, setActive] = useState('Dashboard')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth <= 900)
+  const [surfacesOpen, setSurfacesOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [authUser, setAuthUser] = useState<AuthUser | null>(null)
   const [signedIn, setSignedIn] = useState(() => new URLSearchParams(window.location.search).get('auth') === 'success')
   const [authLoading, setAuthLoading] = useState(true)
+  const [authError, setAuthError] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search)
+    const err = params.get('error_description') || params.get('error')
+    if (err) return decodeURIComponent(err)
+    if (params.get('auth') === 'failed') return 'Session verification failed. Please sign in again.'
+    return null
+  })
   const [searchOpen, setSearchOpen] = useState(false)
+  const [loginModalOpen, setLoginModalOpen] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('auth') === 'success' || !!params.get('error') || params.get('auth') === 'failed'
+  })
+  const [docsOpen, setDocsOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [permissionsOpen, setPermissionsOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [repo, setRepo] = useState(DEFAULT_REPO)
   const [issue, setIssue] = useState<Issue | null>(null)
@@ -245,16 +1595,27 @@ function App() {
           setAuthUser(data.user)
           setSignedIn(true)
           localStorage.setItem('devpilot_session', 'signed_in')
+          if (window.location.search.includes('auth=') || window.location.search.includes('error=')) {
+            window.history.replaceState({}, document.title, window.location.pathname)
+          }
         } else {
           setAuthUser(null)
           setSignedIn(false)
           localStorage.removeItem('devpilot_session')
+          if (window.location.search.includes('auth=success')) {
+            setAuthError('Authentication could not be verified. Please try signing in again.')
+            window.history.replaceState({}, document.title, window.location.pathname)
+          }
         }
       })
       .catch(() => {
         if (!cancelled) {
           setAuthUser(null)
           setSignedIn(false)
+          if (window.location.search.includes('auth=')) {
+            setAuthError('Network error while verifying session. Ensure DevPilot backend is running on 127.0.0.1:8000.')
+            window.history.replaceState({}, document.title, window.location.pathname)
+          }
         }
       })
       .finally(() => {
@@ -264,6 +1625,16 @@ function App() {
     return () => {
       cancelled = true
     }
+  }, [])
+
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      setSignedIn(false)
+      setAuthUser(null)
+      localStorage.removeItem('devpilot_session')
+    }
+    window.addEventListener('devpilot-auth-expired', handleAuthExpired)
+    return () => window.removeEventListener('devpilot-auth-expired', handleAuthExpired)
   }, [])
 
 
@@ -320,18 +1691,36 @@ function App() {
     saveLog(`${key} ${value ? 'enabled' : 'disabled'}`, 'info')
   }
 
-  if (authLoading) {
-    return <div className="login-screen">
-      <section className="login-card">
-        <div className="brand-mark" style={{ margin: '0 auto' }}><Code2 size={22} /></div>
-        <h1>DevPilot</h1>
-        <p>Checking GitHub session?</p>
-        <Loading />
-      </section>
-    </div>
+  if (authLoading || !signedIn) {
+    return (
+      <>
+        <LandingPage
+          onOpenLogin={() => {
+            setAuthError(null)
+            setLoginModalOpen(true)
+          }}
+          onOpenDocs={() => setDocsOpen(true)}
+          onOpenHelp={() => setHelpOpen(true)}
+          onOpenPermissions={() => setPermissionsOpen(true)}
+        />
+        <GithubLoginModal
+          isOpen={loginModalOpen}
+          onClose={() => setLoginModalOpen(false)}
+          onLogin={login}
+          isVerifying={authLoading && signedIn}
+          authError={authError}
+          onClearError={() => setAuthError(null)}
+          onOpenPermissions={() => {
+            setLoginModalOpen(false)
+            setPermissionsOpen(true)
+          }}
+        />
+        {docsOpen && <DocsModal onClose={() => setDocsOpen(false)} />}
+        {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+        {permissionsOpen && <PermissionsModal onClose={() => setPermissionsOpen(false)} />}
+      </>
+    )
   }
-
-  if (!signedIn) return <LoginScreen onLogin={login} />
 
   return (
     <div className={`app ${sidebarCollapsed ? 'sidebar-collapsed' : 'sidebar-expanded'}`}>
@@ -355,8 +1744,11 @@ function App() {
           <div className="section-label">SYSTEM</div>
           {nav.slice(7).map(item => <NavButton key={item.label} item={item} active={active} onClick={go} />)}
           <div className="section-label">SURFACES</div>
-          <div className="sidebar-surfaces">
-            {quickSurfaces.map(surface => <button key={surface.name} className={`sidebar-surface ${surface.current ? 'current' : ''}`} type="button" onClick={() => openQuickRepo(surface.name)} title={surface.name} aria-label={`Open ${surface.name} surface`}>
+          <button className="nav surface-toggle" type="button" onClick={() => setSurfacesOpen(value => !value)} title="Project surfaces" aria-label="Toggle project surfaces" aria-expanded={surfacesOpen} aria-controls="sidebar-surfaces">
+            <Layers size={20} /><span>Project surfaces</span><ChevronDown className="nav-arrow" size={14} />
+          </button>
+          <div id="sidebar-surfaces" className="sidebar-surfaces" hidden={!surfacesOpen}>
+            {quickSurfaces.map(surface => <button key={surface.name} className={`sidebar-surface ${surface.current ? 'current' : ''}`} type="button" onClick={() => { setSurfacesOpen(false); void openQuickRepo(surface.name) }} title={surface.name} aria-label={`Open ${surface.name} surface`}>
               <GitBranch size={20} />
               <span>{surface.name}</span>
               {surface.current && <em>ACTIVE</em>}
@@ -467,7 +1859,9 @@ function Dashboard({ repo, setRepo, issue, setIssue, onNotice, onGo }: { repo: t
   const [repos, setRepos] = useState<Repo[]>([])
   const [issues, setIssues] = useState<Issue[]>([])
   const [busy, setBusy] = useState(false)
+  const operationController = useRef<AbortController | null>(null)
   const [heroMessage, setHeroMessage] = useState(0)
+  useEffect(() => () => operationController.current?.abort(), [])
   useEffect(() => { const id = window.setInterval(() => setHeroMessage(v => (v + 1) % heroMessages.length), 2800); return () => window.clearInterval(id) }, [])
 
   useEffect(() => {
@@ -479,15 +1873,24 @@ function Dashboard({ repo, setRepo, issue, setIssue, onNotice, onGo }: { repo: t
         const [owner, name] = list[0].full_name.split('/')
         if (owner && name) setRepo({ owner, repo: name })
       }
-    }).catch(() => setRepos([]))
+    }).catch(e => {
+      setRepos([])
+      const msg = String(e).toLowerCase()
+      if (msg.includes('sign in') || msg.includes('expired') || msg.includes('bad credentials') || msg.includes('not authenticated')) {
+        window.dispatchEvent(new CustomEvent('devpilot-auth-expired'))
+      }
+    })
   }, [])
   useEffect(() => { api<Issue[]>(`/repositories/${repo.owner}/${repo.repo}/issues`).then(d => setIssues(Array.isArray(d) ? d : ((d as any).issues || []))).catch(() => setIssues([])) }, [repo])
 
   const analyze = async () => {
+    if (busy) return
     if (!issue) { onGo('Issues'); onNotice({ title: 'Choose a GitHub issue', text: 'Select an issue first. DevPilot then runs the real analysis pipeline.' }); return }
+    const operation = createOperationController()
+    operationController.current = operation.controller
     setBusy(true); saveLog(`Analysis started for #${issue.number} · ${issue.title}`, 'active', { phase: 'Issue intake', repo: `${repo.owner}/${repo.repo}`, issue: `#${issue.number} · ${issue.title}`, result: 'Running' }); saveDelivery({ analysis: 'running', repository: `${repo.owner}/${repo.repo}`, issue: `#${issue.number}` })
     try {
-      const result: any = await api(`/repositories/${repo.owner}/${repo.repo}/issues/${issue.number}/analyze`)
+      const result: any = await api(`/repositories/${repo.owner}/${repo.repo}/issues/${issue.number}/analyze`, { signal: operation.controller.signal })
       const analysis = result.analysis?.result || result.analysis || {}
       const analysisSummary = analysis.summary || analysis.root_cause || 'Root-cause analysis is ready.'
       const analysisFiles = (analysis.files || analysis.relevant_files || result.files || []).map((x: any) => typeof x === 'string' ? x : (x.path || x.file || JSON.stringify(x))).slice(0, 12)
@@ -496,8 +1899,16 @@ function Dashboard({ repo, setRepo, issue, setIssue, onNotice, onGo }: { repo: t
       saveLog(`Issue #${issue.number} analyzed successfully`, 'success', { phase: 'Root-cause analysis', repo: `${repo.owner}/${repo.repo}`, issue: `#${issue.number} · ${issue.title}`, result: 'Analysis complete', files: analysisFiles, evidence: String(analysisSummary).slice(0, 1800) })
       onNotice({ title: 'Agent analysis complete', text: String(analysisSummary) })
       onGo('Agent Runs')
-    } catch (e) { onNotice({ title: 'Analysis failed', text: String(e) }) }
-    finally { setBusy(false) }
+    } catch (e) {
+      const message = formatOperationError(e, 'Analysis')
+      saveDelivery({ analysis: 'failed', repository: `${repo.owner}/${repo.repo}`, issue: `#${issue.number}` })
+      saveLog(`Analysis failed for #${issue.number}`, 'warning', { phase: 'Root-cause analysis', repo: `${repo.owner}/${repo.repo}`, issue: `#${issue.number} · ${issue.title}`, result: message })
+      onNotice({ title: 'Analysis failed', text: message })
+    } finally {
+      operation.clearTimeout()
+      if (operationController.current === operation.controller) operationController.current = null
+      setBusy(false)
+    }
   }
 
   return <div className="dashboard">
@@ -527,6 +1938,7 @@ function Dashboard({ repo, setRepo, issue, setIssue, onNotice, onGo }: { repo: t
         <div className="pipeline-mini"><span>Issue</span><i>→</i><span>Context</span><i>→</i><span>AI</span><i>→</i><span>Patch</span><i>→</i><span>Tests</span><i>→</i><span>Review</span></div>
         <button className="primary big" disabled={busy} onClick={analyze}>{busy ? <><Loader2 className="spin" size={16} /> Agent working…</> : <><Zap size={16} fill="currentColor" /> Analyze with DevPilot</>}</button>
       </div>
+      {busy && <OperationStatus title="Analyzing issue" detail="Building repository context and root-cause analysis." onCancel={() => operationController.current?.abort()} />}
     </section>
 
     <div className="dashboard-grid">
@@ -553,13 +1965,40 @@ function Repositories({ onSelect }: { onSelect: (r: Repo) => void }) {
   const [selected, setSelected] = useState<Repo | null>(null)
   const [tree, setTree] = useState<any[]>([])
   const [error, setError] = useState('')
-  const load = () => { setLoading(true); setError(''); api<{ repositories: Repo[] }>('/repositories/session').then(d => setRepos(d.repositories || [])).catch(e => { setRepos([]); setError(String(e).replace(/^Error:\s*/, '')) }).finally(() => setLoading(false)) }
+  const load = () => {
+    setLoading(true)
+    setError('')
+    api<{ repositories: Repo[] }>('/repositories/session')
+      .then(d => setRepos(d.repositories || []))
+      .catch(e => {
+        setRepos([])
+        const msg = String(e).replace(/^Error:\s*/, '')
+        setError(msg)
+        const lower = msg.toLowerCase()
+        if (lower.includes('sign in') || lower.includes('expired') || lower.includes('bad credentials') || lower.includes('not authenticated')) {
+          window.dispatchEvent(new CustomEvent('devpilot-auth-expired'))
+        }
+      })
+      .finally(() => setLoading(false))
+  }
   useEffect(load, [])
   useEffect(() => { if (!selected) return; const [owner, name] = selected.full_name.split('/'); api<any>(`/repositories/${owner}/${name}/tree-session`).then(d => setTree(d.tree || d.items || d || [])).catch(() => setTree([])) }, [selected])
   const filtered = repos.filter(r => `${r.full_name} ${r.language || ''}`.toLowerCase().includes(query.toLowerCase()))
   return <PageShell eyebrow="REPOSITORY CONTROL" title="Your engineering surface" desc="GitHub repositories are live working surfaces for the agent. Inspect them before asking DevPilot to change anything.">
     <div className="toolbar"><div className="field-search"><Search size={15} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Filter repositories…" /></div><button className="secondary" onClick={load}><RefreshCw size={14} /> Refresh GitHub</button></div>
-    {loading ? <Loading /> : error ? <Empty title="GitHub repositories unavailable" text={error} /> : <div className="repo-grid">{filtered.map((r, i) => <button className={`repo-card ${selected?.full_name === r.full_name ? 'selected' : ''}`} key={r.full_name} onClick={() => setSelected(r)}><div className="repo-card-top"><span className="repo-index">0{i + 1}</span><div className="repo-symbol"><GitBranch size={17} /></div><span className="repo-language">{r.private ? 'PRIVATE' : 'PUBLIC'}</span></div><h3>{r.name}</h3><p>{r.full_name}</p><div><span>{r.language || 'Multi-language'}</span><span>{r.default_branch || 'main'}</span></div></button>)}</div>}
+    {loading ? <Loading /> : error ? (
+      <Empty
+        title="GitHub repositories unavailable"
+        text={error}
+        action={
+          (error.toLowerCase().includes('sign in') || error.toLowerCase().includes('expired') || error.toLowerCase().includes('credential') || error.toLowerCase().includes('authenticated')) ? (
+            <a className="primary link-button" href="http://127.0.0.1:8000/api/auth/github/login" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+              <GitBranch size={15} /> Sign in with GitHub
+            </a>
+          ) : undefined
+        }
+      />
+    ) : <div className="repo-grid">{filtered.map((r, i) => <button className={`repo-card ${selected?.full_name === r.full_name ? 'selected' : ''}`} key={r.full_name} onClick={() => setSelected(r)}><div className="repo-card-top"><span className="repo-index">0{i + 1}</span><div className="repo-symbol"><GitBranch size={17} /></div><span className="repo-language">{r.private ? 'PRIVATE' : 'PUBLIC'}</span></div><h3>{r.name}</h3><p>{r.full_name}</p><div><span>{r.language || 'Multi-language'}</span><span>{r.default_branch || 'main'}</span></div></button>)}</div>}
     {selected && <div className="drawer"><div className="drawer-head"><div><span className="label">REPOSITORY INSPECTOR</span><h3>{selected.full_name}</h3></div><button className="close-small" onClick={() => setSelected(null)}><X size={16} /></button></div><div className="drawer-actions"><button className="primary" onClick={() => onSelect(selected)}><Bot size={15} /> Use with Agent</button>{selected.html_url && <a className="secondary link-button" href={selected.html_url} target="_blank" rel="noreferrer"><GitBranch size={15} /> Open GitHub</a>}</div><div className="tree-list">{tree.slice(0, 60).map((item: any) => <div className="tree-row" key={item.path || item.name}><span className={item.type === 'tree' ? 'folder' : 'file'}>{item.type === 'tree' ? 'DIR' : 'FILE'}</span><code>{item.path || item.name}</code></div>)}</div></div>}
   </PageShell>
 }
@@ -569,13 +2008,24 @@ function Issues({ repo, selected, onSelect, onNotice, onGo }: { repo: typeof DEF
   const [loading, setLoading] = useState(true)
   const [analysis, setAnalysis] = useState<any>(null)
   const [busy, setBusy] = useState(false)
+  const operationController = useRef<AbortController | null>(null)
   const load = () => { setLoading(true); api<any>(`/repositories/${repo.owner}/${repo.repo}/issues`).then(d => setIssues(Array.isArray(d) ? d : d.issues || [])).catch(() => setIssues([])).finally(() => setLoading(false)) }
   useEffect(load, [repo])
+  useEffect(() => () => operationController.current?.abort(), [])
   const run = async () => {
-    if (!selected) return
+    if (!selected || busy) return
+    const operation = createOperationController()
+    operationController.current = operation.controller
     setBusy(true); saveLog(`Agent analysis requested for issue #${selected.number}`, 'active')
-    try { const d = await api<any>(`/repositories/${repo.owner}/${repo.repo}/issues/${selected.number}/analyze`); setAnalysis(d); saveRun({ id: `RUN-${Date.now()}`, issue: selected, repo, status: 'Analyzed', created: nowLabel(), result: d }); saveLog(`Issue #${selected.number} analysis complete`, 'success'); onNotice({ title: 'Root-cause analysis ready', text: d.analysis?.result?.summary || d.analysis?.summary || 'Analysis completed.' }) }
-    catch (e) { onNotice({ title: 'Analysis failed', text: String(e) }) } finally { setBusy(false) }
+    try {
+      const d = await api<any>(`/repositories/${repo.owner}/${repo.repo}/issues/${selected.number}/analyze`, { signal: operation.controller.signal })
+      setAnalysis(d); saveRun({ id: `RUN-${Date.now()}`, issue: selected, repo, status: 'Analyzed', created: nowLabel(), result: d }); saveLog(`Issue #${selected.number} analysis complete`, 'success'); onNotice({ title: 'Root-cause analysis ready', text: d.analysis?.result?.summary || d.analysis?.summary || 'Analysis completed.' })
+    } catch (e) { onNotice({ title: 'Analysis failed', text: formatOperationError(e, 'Analysis') }) }
+    finally {
+      operation.clearTimeout()
+      if (operationController.current === operation.controller) operationController.current = null
+      setBusy(false)
+    }
   }
   return <PageShell eyebrow="ISSUE INTAKE" title="Issues that can become agent runs" desc={`Live GitHub issues from ${repo.owner}/${repo.repo}. Select one to inspect evidence and hand it to DevPilot.`}>
     <div className="toolbar"><div className="repo-context"><GitBranch size={14} /> {repo.owner}/{repo.repo}</div><button className="secondary" onClick={load}><RefreshCw size={14} /> Refresh</button></div>
@@ -584,6 +2034,7 @@ function Issues({ repo, selected, onSelect, onNotice, onGo }: { repo: typeof DEF
       <section className="issue-detail surface">
         {selected ? <><div className="detail-top"><div><span className="label">ISSUE #{selected.number}</span><h3>{selected.title}</h3></div><button className="primary" disabled={busy} onClick={run}>{busy ? <><Loader2 className="spin" size={14} /> Running</> : <><Bot size={14} /> Analyze</>}</button></div><div className="issue-brief"><div><span className="issue-label">PROBLEM</span><p>{selected.body || 'No problem description provided.'}</p></div><div><span className="issue-label">EXPECTED BEHAVIOR</span><p>Task should immediately reflect the intended state and remain correct after refresh.</p></div></div>{analysis && <AnalysisResult data={analysis} onGo={onGo} />}</> : <Empty title="Select an issue" text="The agent needs an issue as its starting point." />}</section>
     </div>
+    {busy && <OperationStatus title="Analyzing issue" detail="Building repository context and root-cause analysis." onCancel={() => operationController.current?.abort()} />}
   </PageShell>
 }
 
@@ -603,12 +2054,22 @@ function AgentRuns() {
 function CodeChanges({ repo, issue, onNotice }: { repo: typeof DEFAULT_REPO; issue: Issue | null; onNotice: (n: { title: string; text: string; kind?: string }) => void }) {
   const [data, setData] = useState<any>(null)
   const [busy, setBusy] = useState(false)
+  const operationController = useRef<AbortController | null>(null)
   const [applyBusy, setApplyBusy] = useState(false)
+  useEffect(() => () => operationController.current?.abort(), [])
   const generate = async () => {
+    if (busy) return
     if (!issue) { onNotice({ title: 'Select an issue first', text: 'Code Changes uses the selected GitHub issue to generate a real patch.' }); return }
+    const operation = createOperationController()
+    operationController.current = operation.controller
     setBusy(true); saveLog(`Patch generation started for #${issue.number}`, 'active', { phase: 'Patch generation', repo: `${repo.owner}/${repo.repo}`, issue: `#${issue.number} · ${issue.title}`, result: 'Running' })
-    try { const d = await api<any>(`/repositories/${repo.owner}/${repo.repo}/issues/${issue.number}/patch`); setData(d); const patchFiles = (d.patch?.files || []).map((f: any) => f.path || f.file || 'unknown').slice(0, 20); const firstEdit = d.patch?.files?.find((f: any) => f.edits?.length)?.edits?.[0]; saveDelivery({ patch: 'generated', files: patchFiles, repository: `${repo.owner}/${repo.repo}`, issue: `#${issue.number}` }); saveLog(`Patch generated for #${issue.number}`, 'success', { phase: 'Patch generation', repo: `${repo.owner}/${repo.repo}`, issue: `#${issue.number} · ${issue.title}`, result: 'Patch generated', files: patchFiles, before: firstEdit?.find ? String(firstEdit.find).slice(0, 1200) : undefined, after: firstEdit?.replace ? String(firstEdit.replace).slice(0, 1200) : undefined, evidence: String(d.patch?.summary || 'Generated patch') }); onNotice({ title: 'Patch generated', text: 'Review the diff. Apply & Test is available only after the patch is visible.' }) }
-    catch (e) { onNotice({ title: 'Patch generation failed', text: String(e) }) } finally { setBusy(false) }
+    try { const d = await api<any>(`/repositories/${repo.owner}/${repo.repo}/issues/${issue.number}/patch`, { signal: operation.controller.signal }); setData(d); const patchFiles = (d.patch?.files || []).map((f: any) => f.path || f.file || 'unknown').slice(0, 20); const firstEdit = d.patch?.files?.find((f: any) => f.edits?.length)?.edits?.[0]; saveDelivery({ patch: 'generated', files: patchFiles, repository: `${repo.owner}/${repo.repo}`, issue: `#${issue.number}` }); saveLog(`Patch generated for #${issue.number}`, 'success', { phase: 'Patch generation', repo: `${repo.owner}/${repo.repo}`, issue: `#${issue.number} · ${issue.title}`, result: 'Patch generated', files: patchFiles, before: firstEdit?.find ? String(firstEdit.find).slice(0, 1200) : undefined, after: firstEdit?.replace ? String(firstEdit.replace).slice(0, 1200) : undefined, evidence: String(d.patch?.summary || 'Generated patch') }); onNotice({ title: 'Patch generated', text: 'Review the diff. Apply & Test is available only after the patch is visible.' }) }
+    catch (e) { onNotice({ title: 'Patch generation failed', text: formatOperationError(e, 'Patch generation') }) }
+    finally {
+      operation.clearTimeout()
+      if (operationController.current === operation.controller) operationController.current = null
+      setBusy(false)
+    }
   }
   const applyAndTest = async () => {
     const files = data?.patch?.files
@@ -639,7 +2100,8 @@ function CodeChanges({ repo, issue, onNotice }: { repo: typeof DEFAULT_REPO; iss
   const patch = data?.patch || {}
   return <PageShell eyebrow="PATCH WORKSPACE" title="Code changes" desc="Inspect the actual AI-generated patch, then safely apply it in an isolated workspace and run tests.">
     <div className="tool-hero"><div><span className="label">CURRENT CONTEXT</span><h3>{issue ? `Issue #${issue.number} · ${issue.title}` : 'No issue selected'}</h3><p>{repo.owner}/{repo.repo}</p></div><div className="tool-actions"><button className="secondary" disabled={busy} onClick={generate}><Sparkles size={14} /> {busy ? 'Generating…' : 'Generate patch'}</button><button className="primary" disabled={applyBusy || !data?.patch?.files?.length} onClick={applyAndTest}>{applyBusy ? <><Loader2 className="spin" size={15} /> Applying…</> : <><ShieldCheck size={15} /> Apply & Test</>}</button></div></div>
-    {data ? <div className="diff-layout"><section className="surface diff-card"><div className="surface-head"><div><span className="label">PATCH RESULT</span><h3>{patch.summary || 'Generated patch'}</h3></div><span className={`status-pill ${patch.status === 'applied' ? 'success' : ''}`}><span />{patch.status || 'generated'}</span></div><div className="diff-stats"><Metric label="Files" value={String(patch.files_changed ?? data.diff?.split('\n').filter((x: string) => x.startsWith('+++')).length ?? 0)} /><Metric label="Added" value={`+${patch.scope?.lines_added ?? 0}`} /><Metric label="Removed" value={`-${patch.scope?.lines_removed ?? 0}`} /></div><pre className="diff-view">{data.diff || patch.diff || 'No diff returned.'}</pre></section><section className="surface evidence-panel"><span className="label">PLAN</span><pre>{JSON.stringify(data.plan || {}, null, 2)}</pre></section></div> : <Empty title="No patch loaded" text="Select an issue, then generate the patch. Review comes before approval." />}
+    {busy && <OperationStatus title="Generating patch" detail="Analyzing issue context, planning files, and preparing a reviewable patch." onCancel={() => operationController.current?.abort()} />}
+    {data ? <div className="diff-layout"><section className="surface diff-card"><div className="surface-head"><div><span className="label">PATCH RESULT</span><h3>{patch.summary || 'Generated patch'}</h3></div><span className={`status-pill ${patch.status === 'applied' ? 'success' : ''}`}><span />{patch.status || 'generated'}</span></div><div className="diff-stats"><Metric label="Files" value={String(patch.files_changed ?? data.diff?.split('\n').filter((x: string) => x.startsWith('+++')).length ?? 0)} /><Metric label="Added" value={`+${patch.scope?.lines_added ?? 0}`} /><Metric label="Removed" value={`-${patch.scope?.lines_removed ?? 0}`} /></div><pre className="diff-view">{data.diff || patch.diff || 'No diff returned.'}</pre></section><section className="surface evidence-panel"><span className="label">PLAN</span><pre>{JSON.stringify(data.plan || {}, null, 2)}</pre></section></div> : busy ? null : <Empty title="No patch loaded" text="Select an issue, then generate the patch. Review comes before approval." />}
   </PageShell>
 }
 
@@ -800,7 +2262,23 @@ function RepoQuickDrawer({ repo, onClose }: { repo: { name: string; owner: strin
 
 function Metric({ label, value }: { label: string; value: string }) { return <div className="metric"><span>{label}</span><b>{value}</b></div> }
 function Loading() { return <div className="loading"><Loader2 className="spin" size={20} /><span>Connecting to GitHub layer…</span></div> }
-function Empty({ title, text }: { title: string; text: string }) { return <div className="empty-state"><div className="empty-orb"><Bot size={18} /></div><h3>{title}</h3><p>{text}</p></div> }
+function Empty({ title, text, action }: { title: string; text: string; action?: React.ReactNode }) {
+  return (
+    <div className="empty-state">
+      <div className="empty-orb"><Bot size={18} /></div>
+      <h3>{title}</h3>
+      <p>{text}</p>
+      {action && <div style={{ marginTop: '16px' }}>{action}</div>}
+    </div>
+  )
+}
+function OperationStatus({ title, detail, onCancel }: { title: string; detail: string; onCancel: () => void }) {
+  return <div className="operation-status" role="status" aria-live="polite">
+    <div className="operation-status-copy"><Loader2 className="spin" size={17} /><div><b>{title}</b><span>{detail}</span></div></div>
+    <button type="button" className="operation-cancel" onClick={onCancel} aria-label={`Cancel ${title.toLowerCase()}`}><X size={14} /><span>Cancel</span></button>
+    <div className="operation-status-track" role="progressbar" aria-label={title} aria-valuemin={0} aria-valuemax={100} aria-valuetext="In progress"><span /></div>
+  </div>
+}
 function RecentSignals() { const logs = loadLogs().slice(0, 4); return <div className="signals">{(logs.length ? logs : [{ time: nowLabel(), text: 'Agent core initialized', kind: 'success' as const }]).map((l, i) => <div className="signal-row" key={i}><span>{l.time}</span><i className={l.kind || ''} /><b>{l.text}</b></div>)}</div> }
 function Toast({ notice, onClose }: { notice: { title: string; text: string }; onClose: () => void }) { useEffect(() => { const id = window.setTimeout(onClose, 6500); return () => window.clearTimeout(id) }, [notice, onClose]); return <div className="toast"><div className="toast-orb"><Zap size={16} /></div><div className="toast-body"><b>{notice.title}</b><span>{notice.text}</span></div><button aria-label="Dismiss notification" onClick={onClose}><X size={15} /></button></div> }
 

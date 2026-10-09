@@ -20,14 +20,16 @@ except Exception:
     Groq = None
 
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+from app.core.config import settings
 
-GEMINI_PRIMARY = "gemini-3.8-flash"
-GEMINI_FALLBACK = "gemini-3.7-flash"
-GEMINI_SECONDARY_FALLBACK = "gemini-3.6-flash"
+GEMINI_API_KEY = (settings.gemini_api_key or os.getenv("GEMINI_API_KEY", "")).strip()
+GROQ_API_KEY = (settings.groq_api_key or os.getenv("GROQ_API_KEY", "")).strip()
 
-GROQ_MODEL = "qwen/qwen3.8-27b"
+GEMINI_PRIMARY = settings.gemini_model or "gemini-flash-latest"
+GEMINI_FALLBACK = settings.gemini_fallback_model or "gemini-flash-lite-latest"
+GEMINI_SECONDARY_FALLBACK = settings.gemini_secondary_fallback_model or "gemini-3.8-flash"
+
+GROQ_MODEL = settings.groq_model or "qwen/qwen3.8-27b"
 
 MAX_TARGET_FILES = 4
 MAX_FILE_CONTEXT_CHARS = 18000
@@ -414,36 +416,52 @@ def call_groq(prompt: str) -> dict[str, Any]:
             "GROQ_API_KEY is not configured."
         )
 
-    response = groq_client.chat.completions.create(
-        model=GROQ_MODEL,
-        temperature=0.05,
-        max_completion_tokens=MAX_OUTPUT_TOKENS,
-        reasoning_effort="none",
-        response_format={
-            "type": "json_object"
-        },
-        messages=[
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT,
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ],
-    )
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            response = groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                temperature=0.05,
+                max_completion_tokens=MAX_OUTPUT_TOKENS,
+                reasoning_effort="none",
+                response_format={
+                    "type": "json_object"
+                },
+                messages=[
+                    {
+                        "role": "system",
+                        "content": SYSTEM_PROMPT,
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    },
+                ],
+            )
 
-    content = response.choices[0].message.content
+            content = response.choices[0].message.content
 
-    if not content:
-        raise RuntimeError(
-            "Groq returned an empty patch response."
-        )
+            if not content:
+                raise RuntimeError(
+                    "Groq returned an empty patch response."
+                )
 
-    return normalize_patch_result(
-        extract_json(content)
-    )
+            return normalize_patch_result(
+                extract_json(content)
+            )
+
+        except Exception as exc:
+            last_error = exc
+            err_lower = str(exc).lower()
+            if attempt == 0 and ("429" in err_lower or "rate limit" in err_lower):
+                import time
+                time.sleep(2.0)
+                continue
+            raise
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("Groq call failed without response.")
 
 
 def apply_edits_and_build_diff(
@@ -748,6 +766,11 @@ def generate_patch(
             }
 
         except Exception as exc:
+            err_msg = str(exc)
+            if "429" in err_msg or "rate limit" in err_msg.lower():
+                user_msg = "AI patch generation rate limit reached on provider tier. Please wait a few seconds and try again."
+            else:
+                user_msg = f"Groq patch generation failed: {exc}"
             return {
                 "ok": False,
                 "provider": "groq",
@@ -755,9 +778,7 @@ def generate_patch(
                 "patch": None,
                 "diff": None,
                 "fallback": fallback,
-                "errors": [
-                    f"Groq patch generation failed: {exc}"
-                ],
+                "errors": [user_msg],
             }
 
     return {
@@ -768,6 +789,6 @@ def generate_patch(
         "diff": None,
         "fallback": fallback,
         "errors": [
-            "No AI provider is configured."
+            "AI patch generation is unavailable. Please verify that GEMINI_API_KEY or GROQ_API_KEY is configured."
         ],
     }

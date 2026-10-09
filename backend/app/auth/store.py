@@ -6,17 +6,30 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from cryptography.fernet import Fernet
+import httpx
+from fastapi import HTTPException
 from sqlalchemy import DateTime, Integer, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from app.core.config import settings
 
 
+from pathlib import Path
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
+def _as_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
 def _database_url() -> str:
-    return "sqlite:///./devpilot_auth.db"
+    backend_dir = Path(__file__).resolve().parent.parent.parent
+    db_file = backend_dir / "devpilot_auth.db"
+    return f"sqlite:///{db_file.as_posix()}"
 
 DATABASE_URL = _database_url()
 
@@ -138,7 +151,10 @@ def create_session(
     return raw_session_id
 
 
-def get_session(raw_session_id: str) -> AuthSession | None:
+def get_session(raw_session_id: str | None) -> AuthSession | None:
+    if not isinstance(raw_session_id, str) or not raw_session_id.strip():
+        return None
+
     session_hash = hashlib.sha256(
         raw_session_id.encode("utf-8")
     ).hexdigest()
@@ -151,7 +167,10 @@ def get_session(raw_session_id: str) -> AuthSession | None:
         )
 
 
-def delete_session(raw_session_id: str) -> None:
+def delete_session(raw_session_id: str | None) -> None:
+    if not isinstance(raw_session_id, str) or not raw_session_id.strip():
+        return
+
     session_hash = hashlib.sha256(
         raw_session_id.encode("utf-8")
     ).hexdigest()
@@ -168,10 +187,88 @@ def delete_session(raw_session_id: str) -> None:
             db.commit()
 
 
-def access_token_for(session: AuthSession) -> str:
-    value = decrypt(session.access_token)
+def refresh_session_token(session: AuthSession) -> str | None:
+    if not session.refresh_token:
+        return None
 
+    if session.refresh_token_expires_at is not None:
+        ref_exp = _as_utc(session.refresh_token_expires_at)
+        if ref_exp and ref_exp <= utcnow():
+            return None
+
+    decrypted_refresh = decrypt(session.refresh_token)
+    if not decrypted_refresh:
+        return None
+
+    if not settings.github_client_id or not settings.github_client_secret:
+        return None
+
+    try:
+        response = httpx.post(
+            "https://github.com/login/oauth/access_token",
+            data={
+                "client_id": settings.github_client_id,
+                "client_secret": settings.github_client_secret,
+                "grant_type": "refresh_token",
+                "refresh_token": decrypted_refresh,
+            },
+            headers={"Accept": "application/json"},
+            timeout=15.0,
+        )
+        if response.status_code == 200:
+            data = response.json()
+            if "access_token" in data and not data.get("error"):
+                new_access = data["access_token"]
+                new_refresh = data.get("refresh_token")
+                now = utcnow()
+                exp_in = data.get("expires_in")
+                ref_exp_in = data.get("refresh_token_expires_in")
+
+                new_access_exp = now + timedelta(seconds=int(exp_in)) if exp_in else None
+                new_ref_exp = now + timedelta(seconds=int(ref_exp_in)) if ref_exp_in else None
+
+                with SessionLocal() as db:
+                    db_sess = db.get(AuthSession, session.id)
+                    if db_sess:
+                        db_sess.access_token = encrypt(new_access)
+                        if new_refresh:
+                            db_sess.refresh_token = encrypt(new_refresh)
+                        db_sess.access_token_expires_at = new_access_exp
+                        if new_ref_exp:
+                            db_sess.refresh_token_expires_at = new_ref_exp
+                        db.commit()
+
+                session.access_token = encrypt(new_access)
+                if new_refresh:
+                    session.refresh_token = encrypt(new_refresh)
+                session.access_token_expires_at = new_access_exp
+                if new_ref_exp:
+                    session.refresh_token_expires_at = new_ref_exp
+
+                return new_access
+    except Exception:
+        pass
+
+    return None
+
+
+def access_token_for(session: AuthSession) -> str:
+    now = utcnow()
+    exp = _as_utc(session.access_token_expires_at)
+    if exp is not None and exp <= now:
+        refreshed = refresh_session_token(session)
+        if refreshed:
+            return refreshed
+        raise HTTPException(
+            status_code=401,
+            detail="GitHub session expired. Please sign in again.",
+        )
+
+    value = decrypt(session.access_token)
     if not value:
-        raise RuntimeError("Authenticated session has no access token")
+        raise HTTPException(
+            status_code=401,
+            detail="Authenticated session has no access token. Please sign in again.",
+        )
 
     return value
