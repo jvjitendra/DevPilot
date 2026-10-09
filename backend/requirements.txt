@@ -6,8 +6,8 @@ SQLAlchemy
 psycopg[binary]
 PyGithub
 pytest
-
-itsdangerous
-
 itsdangerous
 cryptography
+python-dotenv
+google-genai
+groq
