@@ -17,3 +17,6 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - run: python -m pytest -q
+        env:
+          GITHUB_TOKEN: test-github-token-for-ci
+          SESSION_SECRET_KEY: test-devpilot-ci-session-secret-key-32-chars

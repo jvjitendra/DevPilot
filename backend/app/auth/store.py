@@ -88,10 +88,13 @@ class AuthSession(Base):
 
 
 def _fernet() -> Fernet:
-    secret = settings.session_secret_key.strip()
+    secret = (settings.session_secret_key or os.getenv("SESSION_SECRET_KEY", "")).strip()
 
     if not secret:
-        raise RuntimeError("SESSION_SECRET_KEY is not configured")
+        if settings.app_env != "production":
+            secret = "devpilot-default-dev-session-key-minimum-32-bytes"
+        else:
+            raise RuntimeError("SESSION_SECRET_KEY is not configured")
 
     key = hashlib.sha256(secret.encode("utf-8")).digest()
     import base64

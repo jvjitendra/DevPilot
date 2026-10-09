@@ -41,6 +41,7 @@ def test_rollback_rejects_unmerged_pull_request(monkeypatch):
                 "GitHub revert API must not be called for an unmerged PR."
             )
 
+    monkeypatch.setenv("GITHUB_TOKEN", "test-github-token")
     monkeypatch.setattr(
         "app.api.rollback.httpx.Client",
         FakeClient,
