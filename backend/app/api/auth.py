@@ -6,8 +6,9 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
+import os
 import httpx
-from fastapi import APIRouter, Cookie, HTTPException, Response
+from fastapi import APIRouter, Cookie, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 
 from app.auth.store import (
@@ -25,12 +26,40 @@ GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USER_URL = "https://api.github.com/user"
 
-FRONTEND_URL = "http://127.0.0.1:5173"
-CALLBACK_URL = "http://127.0.0.1:8000/api/auth/github/callback"
-
 SESSION_COOKIE = "devpilot_session"
 OAUTH_STATE_COOKIE = "devpilot_oauth_state"
 PKCE_COOKIE = "devpilot_pkce_verifier"
+
+
+def _get_callback_url(request: Request | None = None) -> str:
+    custom = (
+        os.getenv("GITHUB_CALLBACK_URL")
+        or os.getenv("CALLBACK_URL")
+        or getattr(settings, "callback_url", "")
+    ).strip()
+    if custom:
+        return custom
+    if request:
+        proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+        host = request.headers.get("x-forwarded-host") or request.url.netloc
+        if host:
+            return f"{proto}://{host}/api/auth/github/callback"
+    return "http://127.0.0.1:8000/api/auth/github/callback"
+
+
+def _get_frontend_url(request: Request | None = None) -> str:
+    custom = (
+        os.getenv("FRONTEND_URL")
+        or getattr(settings, "frontend_url", "")
+    ).strip()
+    if custom:
+        return custom
+    if request:
+        proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+        host = request.headers.get("x-forwarded-host") or request.url.netloc
+        if host:
+            return f"{proto}://{host}"
+    return "http://127.0.0.1:5173"
 
 
 def _base64url(value: bytes) -> str:
@@ -50,7 +79,7 @@ def _pkce_pair() -> tuple[str, str]:
 
 
 def _secure_cookie() -> bool:
-    return settings.app_env.lower() == "production"
+    return settings.app_env.lower() == "production" or bool(os.getenv("VERCEL"))
 
 
 def _cookie_kwargs() -> dict:
@@ -63,7 +92,7 @@ def _cookie_kwargs() -> dict:
 
 
 @router.get("/github/login")
-async def github_login():
+async def github_login(request: Request):
     if not settings.github_client_id:
         raise HTTPException(
             status_code=500,
@@ -72,10 +101,11 @@ async def github_login():
 
     state = secrets.token_urlsafe(32)
     verifier, challenge = _pkce_pair()
+    callback_url = _get_callback_url(request)
 
     params = {
         "client_id": settings.github_client_id,
-        "redirect_uri": CALLBACK_URL,
+        "redirect_uri": callback_url,
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
@@ -108,6 +138,7 @@ async def github_login():
 
 @router.get("/github/callback")
 async def github_callback(
+    request: Request,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
@@ -141,11 +172,12 @@ async def github_callback(
             detail="Missing PKCE verifier",
         )
 
+    callback_url = _get_callback_url(request)
     token_payload = {
         "client_id": settings.github_client_id,
         "client_secret": settings.github_client_secret,
         "code": code,
-        "redirect_uri": CALLBACK_URL,
+        "redirect_uri": callback_url,
         "code_verifier": devpilot_pkce_verifier,
     }
 
@@ -217,8 +249,9 @@ async def github_callback(
         refresh_token_expires_at=refresh_token_expires_at,
     )
 
+    frontend_url = _get_frontend_url(request)
     response = RedirectResponse(
-        f"{FRONTEND_URL}/?auth=success",
+        f"{frontend_url}/?auth=success",
         status_code=302,
     )
 

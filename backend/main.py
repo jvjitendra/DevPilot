@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -15,10 +16,25 @@ from app.auth.store import init_auth_store
 
 app = FastAPI(title="DevPilot API", version="0.1.0")
 
+_cors_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+_frontend_url = os.getenv("FRONTEND_URL", "").strip()
+if _frontend_url and _frontend_url not in _cors_origins:
+    _cors_origins.append(_frontend_url)
+
+_extra_origins = os.getenv("CORS_ORIGINS", "").strip()
+if _extra_origins:
+    for origin in _extra_origins.split(","):
+        trimmed = origin.strip()
+        if trimmed and trimmed not in _cors_origins:
+            _cors_origins.append(trimmed)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173","http://127.0.0.1:5173"],
+    allow_origins=_cors_origins,
+    allow_origin_regex=r"^https:\/\/.*\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

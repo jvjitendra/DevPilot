@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
 
     session_secret_key: str = ""
+    frontend_url: str = ""
+    callback_url: str = ""
 
     gemini_model: str = "gemini-flash-latest"
     gemini_fallback_model: str = "gemini-flash-lite-latest"

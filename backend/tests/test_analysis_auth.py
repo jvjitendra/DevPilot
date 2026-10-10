@@ -205,3 +205,39 @@ def test_model_configuration_defaults():
     assert settings.gemini_model == "gemini-flash-latest"
     assert settings.gemini_fallback_model == "gemini-flash-lite-latest"
     assert settings.groq_model == "qwen/qwen3.8-27b"
+
+
+def test_database_url_resolution(monkeypatch):
+    from app.auth.store import _database_url
+
+    # Real postgresql url
+    monkeypatch.setenv("DATABASE_URL", "postgres://user:pass@ep-cool.neon.tech/neondb")
+    assert _database_url() == "postgresql://user:pass@ep-cool.neon.tech/neondb"
+
+    # Placeholder URL should fallback
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:password@host:port/database")
+    monkeypatch.delenv("VERCEL", raising=False)
+    assert _database_url().startswith("sqlite:///")
+
+    # Vercel fallback without DATABASE_URL
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("VERCEL", "1")
+    assert _database_url() == "sqlite:////tmp/devpilot_auth.db"
+
+
+def test_oauth_urls_resolution(monkeypatch):
+    from app.api.auth import _get_callback_url, _get_frontend_url
+
+    # Defaults
+    monkeypatch.delenv("GITHUB_CALLBACK_URL", raising=False)
+    monkeypatch.delenv("CALLBACK_URL", raising=False)
+    monkeypatch.delenv("FRONTEND_URL", raising=False)
+    assert _get_callback_url(None) == "http://127.0.0.1:8000/api/auth/github/callback"
+    assert _get_frontend_url(None) == "http://127.0.0.1:5173"
+
+    # Explicit env vars
+    monkeypatch.setenv("GITHUB_CALLBACK_URL", "https://devpilot.vercel.app/api/auth/github/callback")
+    monkeypatch.setenv("FRONTEND_URL", "https://devpilot.vercel.app")
+    assert _get_callback_url(None) == "https://devpilot.vercel.app/api/auth/github/callback"
+    assert _get_frontend_url(None) == "https://devpilot.vercel.app"
+

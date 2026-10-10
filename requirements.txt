@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+pydantic-settings
+httpx
+SQLAlchemy
+psycopg[binary]
+PyGithub
+pytest
+itsdangerous
+cryptography
+python-dotenv
+google-genai
+groq

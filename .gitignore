@@ -35,6 +35,7 @@ coverage/
 .pytest_cache/
 *.tsbuildinfo
 .eslintcache
+.vercel/
 
 # Logs & Debugging
 *.log

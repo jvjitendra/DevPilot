@@ -27,6 +27,20 @@ def _as_utc(dt: datetime | None) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 def _database_url() -> str:
+    env_url = (os.getenv("DATABASE_URL") or getattr(settings, "database_url", "")).strip()
+    is_placeholder = any(
+        token in env_url.lower()
+        for token in ["@host:", "@host/", "user:password@host", "user:pass@host"]
+    )
+    if env_url and not is_placeholder:
+        if env_url.startswith("postgres://"):
+            env_url = env_url.replace("postgres://", "postgresql://", 1)
+        return env_url
+
+    if os.getenv("VERCEL"):
+        tmp_db = Path("/tmp") / "devpilot_auth.db"
+        return f"sqlite:///{tmp_db.as_posix()}"
+
     backend_dir = Path(__file__).resolve().parent.parent.parent
     db_file = backend_dir / "devpilot_auth.db"
     return f"sqlite:///{db_file.as_posix()}"

@@ -7,7 +7,7 @@ import {
   Zap, Menu
 } from 'lucide-react'
 
-const API = 'http://127.0.0.1:8000/api'
+const API = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://127.0.0.1:8000/api' : '/api')
 const DEFAULT_REPO = { owner: 'jvjitendra', repo: 'task-manager' }
 
 type NavItem = { label: string; icon: typeof LayoutDashboard }
@@ -1613,7 +1613,7 @@ function App() {
           setAuthUser(null)
           setSignedIn(false)
           if (window.location.search.includes('auth=')) {
-            setAuthError('Network error while verifying session. Ensure DevPilot backend is running on 127.0.0.1:8000.')
+            setAuthError('Network error while verifying session. Ensure DevPilot backend is running.')
             window.history.replaceState({}, document.title, window.location.pathname)
           }
         }
@@ -1665,7 +1665,7 @@ function App() {
   }
 
   const login = () => {
-    window.location.href = 'http://127.0.0.1:8000/api/auth/github/login'
+    window.location.href = `${API}/auth/github/login`
   }
 
   const openQuickRepo = async (label: string) => {
@@ -1992,7 +1992,7 @@ function Repositories({ onSelect }: { onSelect: (r: Repo) => void }) {
         text={error}
         action={
           (error.toLowerCase().includes('sign in') || error.toLowerCase().includes('expired') || error.toLowerCase().includes('credential') || error.toLowerCase().includes('authenticated')) ? (
-            <a className="primary link-button" href="http://127.0.0.1:8000/api/auth/github/login" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+            <a className="primary link-button" href={`${API}/auth/github/login`} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
               <GitBranch size={15} /> Sign in with GitHub
             </a>
           ) : undefined
