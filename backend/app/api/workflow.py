@@ -95,6 +95,8 @@ class ApproveReviewRequest(BaseModel):
 
     draft_pr: bool = False
 
+    create_pr: bool = True
+
 
 @router.post(
     "/repositories/{owner}/{repo}/apply-and-test"
@@ -453,63 +455,64 @@ def approve_review(
             )
 
         # ------------------------------------------------
-        # 6. CREATE PULL REQUEST
+        # 6. CREATE PULL REQUEST (IF REQUESTED)
         # ------------------------------------------------
 
-        pr_title = (
-            str(payload.pr_title or "").strip()
-            or payload.commit_message
-        )
-
-        pr_body = (
-            str(payload.pr_body or "").strip()
-            or (
-                f"Approved change from DevPilot review "
-                f"`{review_id}`.\n\n"
-                f"Approval reason:\n"
-                f"{approval_reason}\n\n"
-                f"Commit:\n"
-                f"`{commit_sha or 'unknown'}`"
-            )
-        )
-
-        try:
-            pull_request_result = create_pull_request(
-                owner=owner,
-                repo=repo,
-                head=payload.new_branch,
-                base=session["source_branch"],
-                title=pr_title,
-                body=pr_body,
-                draft=payload.draft_pr,
+        if payload.create_pr:
+            pr_title = (
+                str(payload.pr_title or "").strip()
+                or payload.commit_message
             )
 
-        except GitHubWriteError as exc:
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "message": (
-                        "The approved branch was pushed to "
-                        "GitHub, but Pull Request creation failed."
-                    ),
-                    "repository": session["repository"],
-                    "source_branch": session["source_branch"],
-                    "new_branch": payload.new_branch,
-                    "commit_sha": commit_sha,
-                    "git": {
-                        "branch": branch_result,
-                        "staging": stage_result,
-                        "commit": commit_result,
-                    },
-                    "github": {
-                        "push": push_result,
-                        "pull_request": {
-                            "ok": False,
-                            "error": str(exc),
+            pr_body = (
+                str(payload.pr_body or "").strip()
+                or (
+                    f"Approved change from DevPilot review "
+                    f"`{review_id}`.\n\n"
+                    f"Approval reason:\n"
+                    f"{approval_reason}\n\n"
+                    f"Commit:\n"
+                    f"`{commit_sha or 'unknown'}`"
+                )
+            )
+
+            try:
+                pull_request_result = create_pull_request(
+                    owner=owner,
+                    repo=repo,
+                    head=payload.new_branch,
+                    base=session["source_branch"],
+                    title=pr_title,
+                    body=pr_body,
+                    draft=payload.draft_pr,
+                )
+
+            except GitHubWriteError as exc:
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "message": (
+                            "The approved branch was pushed to "
+                            "GitHub, but Pull Request creation failed."
+                        ),
+                        "repository": session["repository"],
+                        "source_branch": session["source_branch"],
+                        "new_branch": payload.new_branch,
+                        "commit_sha": commit_sha,
+                        "git": {
+                            "branch": branch_result,
+                            "staging": stage_result,
+                            "commit": commit_result,
+                        },
+                        "github": {
+                            "push": push_result,
+                            "pull_request": {
+                                "ok": False,
+                                "error": str(exc),
+                            },
                         },
                     },
-                },
-            )
+                )
 
         # ------------------------------------------------
         # 7. COMPLETE
@@ -524,7 +527,11 @@ def approve_review(
                 "source_branch"
             ],
             "stage": "github-published",
-            "status": "pr-created",
+            "status": (
+                "pr-created"
+                if payload.create_pr
+                else "branch-pushed"
+            ),
             "review_id": review_id,
             "approval": {
                 "approved": True,

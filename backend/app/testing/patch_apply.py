@@ -219,6 +219,18 @@ def _apply_edits_to_text(
 
         occurrences = updated.count(find_text)
 
+        if occurrences == 0:
+            candidate_crlf = find_text.replace("\r\n", "\n").replace("\n", "\r\n")
+            candidate_lf = find_text.replace("\r\n", "\n")
+            if updated.count(candidate_crlf) == 1:
+                find_text = candidate_crlf
+                replace_text = replace_text.replace("\r\n", "\n").replace("\n", "\r\n")
+                occurrences = 1
+            elif updated.count(candidate_lf) == 1:
+                find_text = candidate_lf
+                replace_text = replace_text.replace("\r\n", "\n")
+                occurrences = 1
+
         if occurrences != 1:
             raise ValueError(
                 (
