@@ -1,0 +1,10 @@
+
+{
+  "buildCommand": null,
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/main.py"
+    }
+  ]
+}
