@@ -1903,10 +1903,7 @@ function Dashboard({ repo, setRepo, issue, setIssue, onNotice, onGo }: { repo: t
       }
     }).catch(e => {
       setRepos([])
-      const msg = String(e).toLowerCase()
-      if (msg.includes('sign in') || msg.includes('expired') || msg.includes('bad credentials') || msg.includes('not authenticated')) {
-        window.dispatchEvent(new CustomEvent('devpilot-auth-expired'))
-      }
+      console.warn('Could not load session repositories:', e)
     })
   }, [])
   useEffect(() => { api<Issue[]>(`/repositories/${repo.owner}/${repo.repo}/issues`).then(d => setIssues(Array.isArray(d) ? d : ((d as any).issues || []))).catch(() => setIssues([])) }, [repo])
@@ -2002,10 +1999,6 @@ function Repositories({ onSelect }: { onSelect: (r: Repo) => void }) {
         setRepos([])
         const msg = String(e).replace(/^Error:\s*/, '')
         setError(msg)
-        const lower = msg.toLowerCase()
-        if (lower.includes('sign in') || lower.includes('expired') || lower.includes('bad credentials') || lower.includes('not authenticated')) {
-          window.dispatchEvent(new CustomEvent('devpilot-auth-expired'))
-        }
       })
       .finally(() => setLoading(false))
   }

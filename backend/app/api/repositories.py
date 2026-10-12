@@ -12,13 +12,47 @@ load_dotenv()
 
 router = APIRouter()
 
-def _resolve_token_and_source(devpilot_session: Any = None) -> tuple[str, str]:
+def _extract_session_id(
+    devpilot_session: Any = None,
+    request: Request | None = None,
+    authorization: str | None = None,
+) -> str | None:
     raw_session = devpilot_session
     if hasattr(devpilot_session, "default"):
         raw_session = None
 
     if isinstance(raw_session, str) and raw_session.strip():
-        session = get_session(raw_session)
+        return raw_session.strip()
+
+    if isinstance(authorization, str) and authorization.strip():
+        if authorization.lower().startswith("bearer "):
+            return authorization[7:].strip()
+        return authorization.strip()
+
+    if request is not None:
+        auth_hdr = request.headers.get("authorization", "")
+        if auth_hdr.lower().startswith("bearer "):
+            val = auth_hdr[7:].strip()
+            if val:
+                return val
+        cookie_val = request.cookies.get("devpilot_session")
+        if cookie_val and isinstance(cookie_val, str) and cookie_val.strip():
+            return cookie_val.strip()
+        param = request.query_params.get("session_token") or request.query_params.get("session_id")
+        if param and isinstance(param, str) and param.strip():
+            return param.strip()
+
+    return None
+
+
+def _resolve_token_and_source(
+    devpilot_session: Any = None,
+    request: Request | None = None,
+    authorization: str | None = None,
+) -> tuple[str, str]:
+    session_id = _extract_session_id(devpilot_session, request, authorization)
+    if session_id:
+        session = get_session(session_id)
         if session:
             try:
                 token = access_token_for(session)
@@ -39,8 +73,12 @@ def _resolve_token_and_source(devpilot_session: Any = None) -> tuple[str, str]:
     )
 
 
-def _session_or_env_token(devpilot_session: Any = None) -> str:
-    token, _ = _resolve_token_and_source(devpilot_session)
+def _session_or_env_token(
+    devpilot_session: Any = None,
+    request: Request | None = None,
+    authorization: str | None = None,
+) -> str:
+    token, _ = _resolve_token_and_source(devpilot_session, request, authorization)
     return token
 
 
@@ -1455,7 +1493,7 @@ def get_repository_file(
 def _session_github_token(request: Request) -> str:
     from app.auth.store import access_token_for, get_session
 
-    session_id = request.cookies.get("devpilot_session")
+    session_id = _extract_session_id(request=request)
     if session_id:
         session = get_session(session_id)
         if session:
@@ -1511,7 +1549,7 @@ def get_authenticated_repositories(request: Request):
 
             if response.status_code != 200:
                 if response.status_code == 401:
-                    session_id = request.cookies.get("devpilot_session")
+                    session_id = _extract_session_id(request=request)
                     if session_id:
                         from app.auth.store import delete_session
                         delete_session(session_id)
@@ -1597,7 +1635,7 @@ def get_authenticated_tree(
 
         if response.status_code != 200:
             if response.status_code == 401:
-                session_id = request.cookies.get("devpilot_session")
+                session_id = _extract_session_id(request=request)
                 if session_id:
                     from app.auth.store import delete_session
                     delete_session(session_id)
@@ -1664,7 +1702,7 @@ def get_authenticated_file(
 
         if response.status_code != 200:
             if response.status_code == 401:
-                session_id = request.cookies.get("devpilot_session")
+                session_id = _extract_session_id(request=request)
                 if session_id:
                     from app.auth.store import delete_session
                     delete_session(session_id)
