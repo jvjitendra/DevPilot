@@ -241,3 +241,26 @@ def test_oauth_urls_resolution(monkeypatch):
     assert _get_callback_url(None) == "https://devpilot.vercel.app/api/auth/github/callback"
     assert _get_frontend_url(None) == "https://devpilot.vercel.app"
 
+
+def test_stateless_session_verification():
+    from app.auth.store import create_session, get_session, access_token_for
+
+    # Create session
+    raw_token = create_session(
+        github_user_id="555",
+        github_login="stateless_user",
+        github_name="Stateless Test",
+        github_avatar_url="https://example.com/avatar.png",
+        access_token="gho_stateless_secret_123",
+        refresh_token=None,
+        access_token_expires_at=None,
+        refresh_token_expires_at=None,
+    )
+
+    # Verify get_session works
+    session = get_session(raw_token)
+    assert session is not None
+    assert session.github_login == "stateless_user"
+    assert access_token_for(session) == "gho_stateless_secret_123"
+
+

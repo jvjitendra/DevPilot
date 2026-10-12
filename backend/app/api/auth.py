@@ -53,12 +53,12 @@ def _get_frontend_url(request: Request | None = None) -> str:
         or getattr(settings, "frontend_url", "")
     ).strip()
     if custom:
-        return custom
+        return custom.rstrip("/")
     if request:
         proto = request.headers.get("x-forwarded-proto") or request.url.scheme
         host = request.headers.get("x-forwarded-host") or request.url.netloc
         if host:
-            return f"{proto}://{host}"
+            return f"{proto}://{host}".rstrip("/")
     return "http://127.0.0.1:5173"
 
 
@@ -270,16 +270,25 @@ async def github_callback(
 
 @router.get("/me")
 async def auth_me(
+    request: Request,
     response: Response,
     devpilot_session: str | None = Cookie(default=None),
 ):
-    if not isinstance(devpilot_session, str) or not devpilot_session.strip():
+    session_id = devpilot_session
+    if not isinstance(session_id, str) or not session_id.strip():
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            session_id = auth_header[7:].strip()
+    if not isinstance(session_id, str) or not session_id.strip():
+        session_id = request.query_params.get("session_id")
+
+    if not isinstance(session_id, str) or not session_id.strip():
         return {
             "authenticated": False,
             "user": None,
         }
 
-    session = get_session(devpilot_session)
+    session = get_session(session_id)
 
     if not session:
         response.delete_cookie(SESSION_COOKIE, path="/")
@@ -292,7 +301,7 @@ async def auth_me(
         token = access_token_for(session)
     except HTTPException as e:
         if e.status_code == 401:
-            delete_session(devpilot_session)
+            delete_session(session_id)
             response.delete_cookie(SESSION_COOKIE, path="/")
         return {
             "authenticated": False,

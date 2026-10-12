@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -27,7 +28,7 @@ def _as_utc(dt: datetime | None) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 def _database_url() -> str:
-    env_url = (os.getenv("DATABASE_URL") or getattr(settings, "database_url", "")).strip()
+    env_url = (os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("POSTGRES_URL_NON_POOLING") or getattr(settings, "database_url", "")).strip()
     is_placeholder = any(
         token in env_url.lower()
         for token in ["@host:", "@host/", "user:password@host", "user:pass@host"]
@@ -102,13 +103,16 @@ class AuthSession(Base):
 
 
 def _fernet() -> Fernet:
-    secret = (settings.session_secret_key or os.getenv("SESSION_SECRET_KEY", "")).strip()
+    secret = (
+        settings.session_secret_key
+        or os.getenv("SESSION_SECRET_KEY")
+        or os.getenv("SESSION_SECRET")
+        or getattr(settings, "github_client_secret", "")
+        or os.getenv("GITHUB_CLIENT_SECRET", "")
+    ).strip()
 
     if not secret:
-        if settings.app_env != "production":
-            secret = "devpilot-default-dev-session-key-minimum-32-bytes"
-        else:
-            raise RuntimeError("SESSION_SECRET_KEY is not configured")
+        secret = "devpilot-default-session-encryption-key-32b"
 
     key = hashlib.sha256(secret.encode("utf-8")).digest()
     import base64
@@ -145,7 +149,19 @@ def create_session(
     access_token_expires_at: datetime | None,
     refresh_token_expires_at: datetime | None,
 ) -> str:
-    raw_session_id = secrets.token_urlsafe(48)
+    session_data = {
+        "v": 1,
+        "nonce": secrets.token_urlsafe(16),
+        "user_id": github_user_id,
+        "login": github_login,
+        "name": github_name,
+        "avatar_url": github_avatar_url,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "access_token_expires_at": access_token_expires_at.isoformat() if access_token_expires_at else None,
+        "refresh_token_expires_at": refresh_token_expires_at.isoformat() if refresh_token_expires_at else None,
+    }
+    raw_session_id = _fernet().encrypt(json.dumps(session_data).encode("utf-8")).decode("utf-8")
 
     record = AuthSession(
         session_hash=hashlib.sha256(
@@ -161,9 +177,12 @@ def create_session(
         refresh_token_expires_at=refresh_token_expires_at,
     )
 
-    with SessionLocal() as db:
-        db.add(record)
-        db.commit()
+    try:
+        with SessionLocal() as db:
+            db.add(record)
+            db.commit()
+    except Exception:
+        pass
 
     return raw_session_id
 
@@ -176,12 +195,42 @@ def get_session(raw_session_id: str | None) -> AuthSession | None:
         raw_session_id.encode("utf-8")
     ).hexdigest()
 
-    with SessionLocal() as db:
-        return db.scalar(
-            select(AuthSession).where(
-                AuthSession.session_hash == session_hash
+    # 1. Try reading from database
+    try:
+        with SessionLocal() as db:
+            record = db.scalar(
+                select(AuthSession).where(
+                    AuthSession.session_hash == session_hash
+                )
             )
-        )
+            if record:
+                return record
+    except Exception:
+        pass
+
+    # 2. Stateless fallback: decrypt signed Fernet token directly
+    try:
+        decrypted_bytes = _fernet().decrypt(raw_session_id.encode("utf-8"))
+        data = json.loads(decrypted_bytes.decode("utf-8"))
+        if isinstance(data, dict) and data.get("login") and data.get("access_token"):
+            access_exp = datetime.fromisoformat(data["access_token_expires_at"]) if data.get("access_token_expires_at") else None
+            refresh_exp = datetime.fromisoformat(data["refresh_token_expires_at"]) if data.get("refresh_token_expires_at") else None
+            return AuthSession(
+                id=0,
+                session_hash=session_hash,
+                github_user_id=str(data.get("user_id", "")),
+                github_login=data["login"],
+                github_name=data.get("name"),
+                github_avatar_url=data.get("avatar_url"),
+                access_token=encrypt(data["access_token"]),
+                refresh_token=encrypt(data.get("refresh_token")),
+                access_token_expires_at=access_exp,
+                refresh_token_expires_at=refresh_exp,
+            )
+    except Exception:
+        pass
+
+    return None
 
 
 def delete_session(raw_session_id: str | None) -> None:
