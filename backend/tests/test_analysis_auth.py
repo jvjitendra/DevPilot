@@ -264,3 +264,21 @@ def test_stateless_session_verification():
     assert access_token_for(session) == "gho_stateless_secret_123"
 
 
+def test_self_validating_oauth_state():
+    import json
+    from app.auth.store import encrypt, decrypt
+
+    state_payload = {
+        "nonce": "test_nonce_123",
+        "verifier": "test_pkce_verifier_abc",
+        "ts": 1700000000,
+    }
+    encrypted_state = encrypt(json.dumps(state_payload))
+    assert encrypted_state is not None
+
+    decrypted_state = decrypt(encrypted_state)
+    assert decrypted_state is not None
+    parsed = json.loads(decrypted_state)
+    assert parsed["verifier"] == "test_pkce_verifier_abc"
+
+

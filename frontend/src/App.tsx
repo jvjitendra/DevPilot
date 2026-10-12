@@ -117,7 +117,17 @@ function saveDelivery(patch: Record<string, unknown>) {
   window.dispatchEvent(new Event('devpilot-delivery'))
 }
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API}${path}`, { ...options, credentials: 'include', headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) } })
+  const token = typeof window !== 'undefined' ? localStorage.getItem('devpilot_session_token') : null
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+  const response = await fetch(`${API}${path}`, {
+    ...options,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders,
+      ...(options?.headers || {})
+    }
+  })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(typeof data?.detail === 'string' ? data.detail : JSON.stringify(data?.detail || data))
   return data as T
@@ -1588,6 +1598,21 @@ function App() {
   useEffect(() => {
     let cancelled = false
 
+    const params = new URLSearchParams(window.location.search)
+    const urlSessionToken = params.get('session_token')
+    if (urlSessionToken) {
+      localStorage.setItem('devpilot_session_token', urlSessionToken)
+    }
+
+    const urlError = params.get('error')
+    if (urlError) {
+      const msg = urlError === 'invalid_oauth_state'
+        ? 'OAuth session expired or cookies were blocked. Please try signing in again.'
+        : `Sign in failed: ${urlError.replace(/_/g, ' ')}`
+      setAuthError(msg)
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+
     api<{ authenticated: boolean; user?: AuthUser }>('/auth/me')
       .then(data => {
         if (cancelled) return
@@ -1595,13 +1620,14 @@ function App() {
           setAuthUser(data.user)
           setSignedIn(true)
           localStorage.setItem('devpilot_session', 'signed_in')
-          if (window.location.search.includes('auth=') || window.location.search.includes('error=')) {
+          if (window.location.search.includes('auth=') || window.location.search.includes('error=') || window.location.search.includes('session_token=')) {
             window.history.replaceState({}, document.title, window.location.pathname)
           }
         } else {
           setAuthUser(null)
           setSignedIn(false)
           localStorage.removeItem('devpilot_session')
+          localStorage.removeItem('devpilot_session_token')
           if (window.location.search.includes('auth=success')) {
             setAuthError('Authentication could not be verified. Please try signing in again.')
             window.history.replaceState({}, document.title, window.location.pathname)
@@ -1632,6 +1658,7 @@ function App() {
       setSignedIn(false)
       setAuthUser(null)
       localStorage.removeItem('devpilot_session')
+      localStorage.removeItem('devpilot_session_token')
     }
     window.addEventListener('devpilot-auth-expired', handleAuthExpired)
     return () => window.removeEventListener('devpilot-auth-expired', handleAuthExpired)
@@ -1657,6 +1684,7 @@ function App() {
       // Local state is still cleared below.
     } finally {
       localStorage.removeItem('devpilot_session')
+      localStorage.removeItem('devpilot_session_token')
       setAccountOpen(false)
       setProfileOpen(false)
       setAuthUser(null)

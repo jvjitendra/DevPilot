@@ -6,6 +6,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
+import json
 import os
 import httpx
 from fastapi import APIRouter, Cookie, HTTPException, Request, Response
@@ -14,7 +15,9 @@ from fastapi.responses import RedirectResponse
 from app.auth.store import (
     access_token_for,
     create_session,
+    decrypt,
     delete_session,
+    encrypt,
     get_session,
 )
 from app.core.config import settings
@@ -99,9 +102,16 @@ async def github_login(request: Request):
             detail="GITHUB_CLIENT_ID is not configured",
         )
 
-    state = secrets.token_urlsafe(32)
     verifier, challenge = _pkce_pair()
     callback_url = _get_callback_url(request)
+
+    # Encode PKCE verifier and timestamp into encrypted tamper-proof state
+    state_payload = {
+        "nonce": secrets.token_urlsafe(16),
+        "verifier": verifier,
+        "ts": int(datetime.now(timezone.utc).timestamp()),
+    }
+    state = encrypt(json.dumps(state_payload)) or secrets.token_urlsafe(32)
 
     params = {
         "client_id": settings.github_client_id,
@@ -145,31 +155,52 @@ async def github_callback(
     devpilot_oauth_state: str | None = Cookie(default=None),
     devpilot_pkce_verifier: str | None = Cookie(default=None),
 ):
+    frontend_url = _get_frontend_url(request)
+
     if error:
-        raise HTTPException(
-            status_code=400,
-            detail=f"GitHub authorization failed: {error}",
+        return RedirectResponse(
+            f"{frontend_url}/?error={error}",
+            status_code=302,
         )
 
     if not code or not state:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing GitHub authorization code or state",
+        return RedirectResponse(
+            f"{frontend_url}/?error=missing_code_or_state",
+            status_code=302,
         )
 
-    if not devpilot_oauth_state or not secrets.compare_digest(
-        state,
-        devpilot_oauth_state,
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid OAuth state",
+    code_verifier = devpilot_pkce_verifier
+    valid_state = False
+
+    # 1. Self-validating encrypted state
+    try:
+        decrypted_state = decrypt(state)
+        if decrypted_state:
+            state_data = json.loads(decrypted_state)
+            if isinstance(state_data, dict) and state_data.get("verifier"):
+                ts = state_data.get("ts", 0)
+                now_ts = int(datetime.now(timezone.utc).timestamp())
+                if abs(now_ts - ts) <= 900:  # 15 minutes window
+                    valid_state = True
+                    code_verifier = state_data["verifier"]
+    except Exception:
+        pass
+
+    # 2. Fallback to cookie check if not self-validating state
+    if not valid_state:
+        if devpilot_oauth_state and secrets.compare_digest(state, devpilot_oauth_state):
+            valid_state = True
+
+    if not valid_state:
+        return RedirectResponse(
+            f"{frontend_url}/?error=invalid_oauth_state",
+            status_code=302,
         )
 
-    if not devpilot_pkce_verifier:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing PKCE verifier",
+    if not code_verifier:
+        return RedirectResponse(
+            f"{frontend_url}/?error=missing_pkce_verifier",
+            status_code=302,
         )
 
     callback_url = _get_callback_url(request)
@@ -178,7 +209,7 @@ async def github_callback(
         "client_secret": settings.github_client_secret,
         "code": code,
         "redirect_uri": callback_url,
-        "code_verifier": devpilot_pkce_verifier,
+        "code_verifier": code_verifier,
     }
 
     async with httpx.AsyncClient(timeout=20.0) as client:
@@ -251,7 +282,7 @@ async def github_callback(
 
     frontend_url = _get_frontend_url(request)
     response = RedirectResponse(
-        f"{frontend_url}/?auth=success",
+        f"{frontend_url}/?auth=success&session_token={session_id}",
         status_code=302,
     )
 
